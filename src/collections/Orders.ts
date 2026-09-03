@@ -16,6 +16,7 @@ export const Orders: CollectionConfig = {
     { name: 'items', label: 'Pozycje', type: 'array', fields: [
       { type: 'row', fields: [
         { name: 'product', label: 'Produkt', type: 'relationship', relationTo: 'products', required: true },
+        { name: 'productName', label: 'Nazwa', type: 'text', virtual: 'product.name', admin: { hidden: true } },
         { name: 'variant', label: 'Wariant', type: 'text' },
         { name: 'qty', label: 'Ilość', type: 'number', required: true, defaultValue: 1 },
         { name: 'price', label: 'Cena', type: 'number', required: true },

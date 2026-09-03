@@ -336,6 +336,7 @@ export interface Post {
 export interface Signup {
   id: number;
   course: number | Course;
+  courseName?: string | null;
   name: string;
   email: string;
   phone: string;
@@ -358,6 +359,7 @@ export interface Order {
   items?:
     | {
         product: number | Product;
+        productName?: string | null;
         variant?: string | null;
         qty: number;
         price: number;
@@ -635,6 +637,7 @@ export interface PostsSelect<T extends boolean = true> {
  */
 export interface SignupsSelect<T extends boolean = true> {
   course?: T;
+  courseName?: T;
   name?: T;
   email?: T;
   phone?: T;
@@ -657,6 +660,7 @@ export interface OrdersSelect<T extends boolean = true> {
     | T
     | {
         product?: T;
+        productName?: T;
         variant?: T;
         qty?: T;
         price?: T;
