@@ -24,6 +24,7 @@ export default buildConfig({
     user: Users.slug,
     importMap: { baseDir: path.resolve(dirname) },
     meta: { titleSuffix: ' · Underwater.pl CMS' },
+    components: { graphics: { Logo: '@/components/admin/Logo', Icon: '@/components/admin/Icon' } },
   },
   i18n: { supportedLanguages: { pl }, fallbackLanguage: 'pl' },
   collections: [Products, Categories, Courses, Trips, Posts, Signups, Orders, Media, Users],
