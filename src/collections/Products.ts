@@ -6,7 +6,7 @@ export const Products: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     group: 'Sklep',
-    defaultColumns: ['name', 'category', 'price', 'salePrice', 'stock', 'featured'],
+    defaultColumns: ['name', 'categoryName', 'price', 'salePrice', 'stock', 'featured'],
     description: 'Każdy produkt ma ten sam adres co dziś: /{ID}-{nazwa}.html',
   },
   access: { read: () => true },
@@ -20,6 +20,7 @@ export const Products: CollectionConfig = {
       ],
     },
     { name: 'category', label: 'Kategoria', type: 'relationship', relationTo: 'categories', required: true },
+    { name: 'categoryName', label: 'Kategoria', type: 'text', virtual: 'category.name', admin: { hidden: true } },
     { name: 'manufacturer', label: 'Producent', type: 'text' },
     {
       type: 'row',

@@ -150,6 +150,7 @@ export interface Product {
    */
   slug: string;
   category: number | Category;
+  categoryName?: string | null;
   manufacturer?: string | null;
   price: number;
   /**
@@ -505,6 +506,7 @@ export interface ProductsSelect<T extends boolean = true> {
   vmId?: T;
   slug?: T;
   category?: T;
+  categoryName?: T;
   manufacturer?: T;
   price?: T;
   salePrice?: T;
