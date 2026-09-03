@@ -1,0 +1,33 @@
+{
+  "name": "underwater-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3011",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "seed": "tsx --env-file=.env scripts/seed.ts",
+    "generate:types": "payload generate:types",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@payloadcms/db-sqlite": "latest",
+    "@payloadcms/next": "latest",
+    "@payloadcms/richtext-lexical": "latest",
+    "@payloadcms/translations": "latest",
+    "graphql": "^16.11.0",
+    "next": "latest",
+    "payload": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "sharp": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "tsx": "latest",
+    "typescript": "^5"
+  }
+}

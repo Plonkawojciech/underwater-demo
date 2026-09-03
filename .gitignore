@@ -1,0 +1,7 @@
+node_modules
+.next
+*.db
+*.db-journal
+/media
+.env
+.DS_Store
