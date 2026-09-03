@@ -4,8 +4,9 @@ import { db } from '@/lib/data'
 import { ShopIndex, CategoryPage, ProductPage } from '@/views/shop'
 import { CoursesIndex, CoursePage, TripsIndex, TripPage } from '@/views/training'
 import { PostsIndex, PostPage, AboutPage, ServicePage, ContactPage, TermsPage } from '@/views/pages'
+import { SearchPage } from '@/views/search'
 
-type Props = { params: Promise<{ slug: string[] }> }
+type Props = { params: Promise<{ slug: string[] }>; searchParams: Promise<Record<string, string | undefined>> }
 const parse = (segs: string[]) => segs.map((s, i) => (i === segs.length - 1 ? s.replace(/\.html$/, '') : s))
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -26,8 +27,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {}
 }
 
-export default async function Page({ params }: Props) {
+export default async function Page({ params, searchParams }: Props) {
   const segs = parse((await params).slug)
+  if (segs.join('/') === 'szukaj') return <SearchPage q={(await searchParams).q || ''} />
   const p = segs.join('/')
   const payload = await db()
   switch (p) {

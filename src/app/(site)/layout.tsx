@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   title: { default: 'Kursy nurkowania i sklep nurkowy – Underwater.pl', template: '%s – Underwater.pl' },
   description: 'Centrum nurkowe w Warszawie od 1998 roku: kursy PADI, TDI/SDI i IANTD, sklep nurkowy z gwarancją najniższej ceny, wyprawy nurkowe i serwis sprzętu.',
   openGraph: { siteName: 'Underwater.pl', locale: 'pl_PL', type: 'website' },
+  robots: { index: false, follow: false },
 }
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +37,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
           <header className="header"><div className="wrap">
             <Link href="/" className="brand"><img src="/img/logo_under.png" alt="" width={40} height={49} /><span>Underwater.pl<small>Centrum nurkowe · Warszawa</small></span></Link>
             <nav className="nav" aria-label="Główne">{NAV.map(([l, h]) => <Link key={h} href={h}>{l}</Link>)}</nav>
+            <form className="search" action="/szukaj" role="search"><input name="q" placeholder="Szukaj w sklepie" aria-label="Szukaj w sklepie" /></form>
             <a className="nav-toggle" href="#menu" aria-label="Menu">Menu</a>
             <CartButton />
           </div></header>
