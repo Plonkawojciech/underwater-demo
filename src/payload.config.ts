@@ -38,4 +38,6 @@ export default buildConfig({
   }),
   sharp,
   serverURL: process.env.NEXT_PUBLIC_SERVER_URL,
+  cors: ['https://underwater-demo.programo.pl', 'https://underwater.programo.pl', 'http://localhost:3011'],
+  csrf: ['https://underwater-demo.programo.pl', 'https://underwater.programo.pl', 'http://localhost:3011'],
 })

@@ -6,10 +6,10 @@ Dzień dobry Panie Janie,
 
 zgodnie z naszą rozmową przygotowaliśmy demo nowej strony Underwater.pl. Można je obejrzeć tutaj:
 
-**https://underwater.programo.pl**
+**https://underwater-demo.programo.pl**
 
 Panel do zarządzania treścią (ten, o który Pan pytał):
-**https://underwater.programo.pl/admin** – login: demo@underwater.pl, hasło: underwater2026
+**https://underwater-demo.programo.pl/admin** – login: demo@underwater.pl, hasło: underwater2026
 
 Co jest w demo:
 - strona główna, sklep z pełnym drzewem kategorii (33 kategorie z obecnego sklepu) i trzema przykładowymi produktami z wariantami i koszykiem,
