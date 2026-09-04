@@ -15,7 +15,7 @@ export function Gallery({ images }: { images: Img[] }) {
   const { image, setImage } = useContext(VariantCtx)
   const main = image || images[0]?.url
   return (
-    <div className="gallery">
+    <div className="gal">
       <div className="main">{main && <img src={main} alt={images.find((i) => i.url === main)?.alt || ''} />}</div>
       {images.length > 1 && <div className="thumbs">{images.map((i) => <button type="button" key={i.url} onClick={() => setImage(i.url)} className={'thumb' + (main === i.url ? ' thumb-on' : '')} aria-label="Pokaż zdjęcie"><img src={i.thumb} alt={i.alt} /></button>)}</div>}
     </div>

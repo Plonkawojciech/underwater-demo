@@ -150,71 +150,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   await db.run(sql`CREATE INDEX \`courses_rels_parent_idx\` ON \`courses_rels\` (\`parent_id\`);`)
   await db.run(sql`CREATE INDEX \`courses_rels_path_idx\` ON \`courses_rels\` (\`path\`);`)
   await db.run(sql`CREATE INDEX \`courses_rels_media_id_idx\` ON \`courses_rels\` (\`media_id\`);`)
-  await db.run(sql`CREATE TABLE \`trips_sections\` (
-  	\`_order\` integer NOT NULL,
-  	\`_parent_id\` integer NOT NULL,
-  	\`id\` text PRIMARY KEY NOT NULL,
-  	\`title\` text NOT NULL,
-  	\`body\` text NOT NULL,
-  	FOREIGN KEY (\`_parent_id\`) REFERENCES \`trips\`(\`id\`) ON UPDATE no action ON DELETE cascade
-  );
-  `)
-  await db.run(sql`CREATE INDEX \`trips_sections_order_idx\` ON \`trips_sections\` (\`_order\`);`)
-  await db.run(sql`CREATE INDEX \`trips_sections_parent_id_idx\` ON \`trips_sections\` (\`_parent_id\`);`)
-  await db.run(sql`CREATE TABLE \`trips\` (
-  	\`id\` integer PRIMARY KEY NOT NULL,
-  	\`name\` text NOT NULL,
-  	\`slug\` text NOT NULL,
-  	\`place\` text,
-  	\`country\` text,
-  	\`date_from\` text,
-  	\`date_to\` text,
-  	\`price\` numeric,
-  	\`flights\` text,
-  	\`lead\` text,
-  	\`image_id\` integer,
-  	\`spots_left\` numeric,
-  	\`featured\` integer DEFAULT false,
-  	\`updated_at\` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
-  	\`created_at\` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
-  	FOREIGN KEY (\`image_id\`) REFERENCES \`media\`(\`id\`) ON UPDATE no action ON DELETE set null
-  );
-  `)
-  await db.run(sql`CREATE UNIQUE INDEX \`trips_slug_idx\` ON \`trips\` (\`slug\`);`)
-  await db.run(sql`CREATE INDEX \`trips_image_idx\` ON \`trips\` (\`image_id\`);`)
-  await db.run(sql`CREATE INDEX \`trips_updated_at_idx\` ON \`trips\` (\`updated_at\`);`)
-  await db.run(sql`CREATE INDEX \`trips_created_at_idx\` ON \`trips\` (\`created_at\`);`)
-  await db.run(sql`CREATE TABLE \`trips_rels\` (
-  	\`id\` integer PRIMARY KEY NOT NULL,
-  	\`order\` integer,
-  	\`parent_id\` integer NOT NULL,
-  	\`path\` text NOT NULL,
-  	\`media_id\` integer,
-  	FOREIGN KEY (\`parent_id\`) REFERENCES \`trips\`(\`id\`) ON UPDATE no action ON DELETE cascade,
-  	FOREIGN KEY (\`media_id\`) REFERENCES \`media\`(\`id\`) ON UPDATE no action ON DELETE cascade
-  );
-  `)
-  await db.run(sql`CREATE INDEX \`trips_rels_order_idx\` ON \`trips_rels\` (\`order\`);`)
-  await db.run(sql`CREATE INDEX \`trips_rels_parent_idx\` ON \`trips_rels\` (\`parent_id\`);`)
-  await db.run(sql`CREATE INDEX \`trips_rels_path_idx\` ON \`trips_rels\` (\`path\`);`)
-  await db.run(sql`CREATE INDEX \`trips_rels_media_id_idx\` ON \`trips_rels\` (\`media_id\`);`)
-  await db.run(sql`CREATE TABLE \`posts\` (
-  	\`id\` integer PRIMARY KEY NOT NULL,
-  	\`title\` text NOT NULL,
-  	\`slug\` text NOT NULL,
-  	\`published_at\` text NOT NULL,
-  	\`excerpt\` text,
-  	\`body\` text,
-  	\`image_id\` integer,
-  	\`updated_at\` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
-  	\`created_at\` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
-  	FOREIGN KEY (\`image_id\`) REFERENCES \`media\`(\`id\`) ON UPDATE no action ON DELETE set null
-  );
-  `)
-  await db.run(sql`CREATE UNIQUE INDEX \`posts_slug_idx\` ON \`posts\` (\`slug\`);`)
-  await db.run(sql`CREATE INDEX \`posts_image_idx\` ON \`posts\` (\`image_id\`);`)
-  await db.run(sql`CREATE INDEX \`posts_updated_at_idx\` ON \`posts\` (\`updated_at\`);`)
-  await db.run(sql`CREATE INDEX \`posts_created_at_idx\` ON \`posts\` (\`created_at\`);`)
   await db.run(sql`CREATE TABLE \`signups\` (
   	\`id\` integer PRIMARY KEY NOT NULL,
   	\`course_id\` integer NOT NULL,
@@ -348,8 +283,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	\`products_id\` integer,
   	\`categories_id\` integer,
   	\`courses_id\` integer,
-  	\`trips_id\` integer,
-  	\`posts_id\` integer,
   	\`signups_id\` integer,
   	\`orders_id\` integer,
   	\`media_id\` integer,
@@ -358,8 +291,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	FOREIGN KEY (\`products_id\`) REFERENCES \`products\`(\`id\`) ON UPDATE no action ON DELETE cascade,
   	FOREIGN KEY (\`categories_id\`) REFERENCES \`categories\`(\`id\`) ON UPDATE no action ON DELETE cascade,
   	FOREIGN KEY (\`courses_id\`) REFERENCES \`courses\`(\`id\`) ON UPDATE no action ON DELETE cascade,
-  	FOREIGN KEY (\`trips_id\`) REFERENCES \`trips\`(\`id\`) ON UPDATE no action ON DELETE cascade,
-  	FOREIGN KEY (\`posts_id\`) REFERENCES \`posts\`(\`id\`) ON UPDATE no action ON DELETE cascade,
   	FOREIGN KEY (\`signups_id\`) REFERENCES \`signups\`(\`id\`) ON UPDATE no action ON DELETE cascade,
   	FOREIGN KEY (\`orders_id\`) REFERENCES \`orders\`(\`id\`) ON UPDATE no action ON DELETE cascade,
   	FOREIGN KEY (\`media_id\`) REFERENCES \`media\`(\`id\`) ON UPDATE no action ON DELETE cascade,
@@ -372,8 +303,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_products_id_idx\` ON \`payload_locked_documents_rels\` (\`products_id\`);`)
   await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_categories_id_idx\` ON \`payload_locked_documents_rels\` (\`categories_id\`);`)
   await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_courses_id_idx\` ON \`payload_locked_documents_rels\` (\`courses_id\`);`)
-  await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_trips_id_idx\` ON \`payload_locked_documents_rels\` (\`trips_id\`);`)
-  await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_posts_id_idx\` ON \`payload_locked_documents_rels\` (\`posts_id\`);`)
   await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_signups_id_idx\` ON \`payload_locked_documents_rels\` (\`signups_id\`);`)
   await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_orders_id_idx\` ON \`payload_locked_documents_rels\` (\`orders_id\`);`)
   await db.run(sql`CREATE INDEX \`payload_locked_documents_rels_media_id_idx\` ON \`payload_locked_documents_rels\` (\`media_id\`);`)
@@ -445,10 +374,6 @@ export async function down({ db, payload, req }: MigrateDownArgs): Promise<void>
   await db.run(sql`DROP TABLE \`courses_includes\`;`)
   await db.run(sql`DROP TABLE \`courses\`;`)
   await db.run(sql`DROP TABLE \`courses_rels\`;`)
-  await db.run(sql`DROP TABLE \`trips_sections\`;`)
-  await db.run(sql`DROP TABLE \`trips\`;`)
-  await db.run(sql`DROP TABLE \`trips_rels\`;`)
-  await db.run(sql`DROP TABLE \`posts\`;`)
   await db.run(sql`DROP TABLE \`signups\`;`)
   await db.run(sql`DROP TABLE \`orders_items\`;`)
   await db.run(sql`DROP TABLE \`orders\`;`)

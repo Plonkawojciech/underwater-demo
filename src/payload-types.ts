@@ -70,8 +70,6 @@ export interface Config {
     products: Product;
     categories: Category;
     courses: Course;
-    trips: Trip;
-    posts: Post;
     signups: Signup;
     orders: Order;
     media: Media;
@@ -86,8 +84,6 @@ export interface Config {
     products: ProductsSelect<false> | ProductsSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
     courses: CoursesSelect<false> | CoursesSelect<true>;
-    trips: TripsSelect<false> | TripsSelect<true>;
-    posts: PostsSelect<false> | PostsSelect<true>;
     signups: SignupsSelect<false> | SignupsSelect<true>;
     orders: OrdersSelect<false> | OrdersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
@@ -284,53 +280,6 @@ export interface Course {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "trips".
- */
-export interface Trip {
-  id: number;
-  name: string;
-  /**
-   * Adres: /wyprawy-nurkowe/{slug}.html
-   */
-  slug: string;
-  place?: string | null;
-  country?: string | null;
-  dateFrom?: string | null;
-  dateTo?: string | null;
-  price?: number | null;
-  flights?: string | null;
-  lead?: string | null;
-  image?: (number | null) | Media;
-  gallery?: (number | Media)[] | null;
-  sections?:
-    | {
-        title: string;
-        body: string;
-        id?: string | null;
-      }[]
-    | null;
-  spotsLeft?: number | null;
-  featured?: boolean | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "posts".
- */
-export interface Post {
-  id: number;
-  title: string;
-  slug: string;
-  publishedAt: string;
-  excerpt?: string | null;
-  body?: string | null;
-  image?: (number | null) | Media;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "signups".
  */
 export interface Signup {
@@ -432,14 +381,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'courses';
         value: number | Course;
-      } | null)
-    | ({
-        relationTo: 'trips';
-        value: number | Trip;
-      } | null)
-    | ({
-        relationTo: 'posts';
-        value: number | Post;
       } | null)
     | ({
         relationTo: 'signups';
@@ -586,48 +527,6 @@ export interface CoursesSelect<T extends boolean = true> {
       };
   featured?: T;
   order?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "trips_select".
- */
-export interface TripsSelect<T extends boolean = true> {
-  name?: T;
-  slug?: T;
-  place?: T;
-  country?: T;
-  dateFrom?: T;
-  dateTo?: T;
-  price?: T;
-  flights?: T;
-  lead?: T;
-  image?: T;
-  gallery?: T;
-  sections?:
-    | T
-    | {
-        title?: T;
-        body?: T;
-        id?: T;
-      };
-  spotsLeft?: T;
-  featured?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "posts_select".
- */
-export interface PostsSelect<T extends boolean = true> {
-  title?: T;
-  slug?: T;
-  publishedAt?: T;
-  excerpt?: T;
-  body?: T;
-  image?: T;
   updatedAt?: T;
   createdAt?: T;
 }
