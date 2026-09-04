@@ -135,10 +135,10 @@ button,input,textarea,select{font:inherit;color:inherit}
 .band .lead{color:#C6D8E0}
 
 /* siatka produktów */
-.grid{display:grid;gap:1px;background:var(--ink-edge);border:1px solid var(--ink-edge);grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))}
-.prod{background:var(--paper);display:flex;flex-direction:column;transition:background var(--t)}
-.prod:hover{background:#FBFAF7}
-.prod .ph{position:relative;aspect-ratio:1;display:grid;place-items:center;padding:26px;background:linear-gradient(160deg,#FBFAF8,#EFEBE3)}
+.grid{display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(min(258px,100%),1fr))}
+.prod{background:var(--paper);border:1px solid var(--ink-edge);display:flex;flex-direction:column;transition:border-color var(--t),transform var(--t)}
+.prod:hover{border-color:var(--ink);transform:translateY(-2px)}
+.prod .ph{position:relative;aspect-ratio:1;display:grid;place-items:center;padding:26px;background:linear-gradient(160deg,#FBFAF8,#EFEBE3);border-bottom:1px solid var(--ink-edge)}
 .prod .ph img{max-height:100%;width:auto;object-fit:contain;mix-blend-mode:multiply;transition:transform var(--t)}
 .prod:hover .ph img{transform:scale(1.035)}
 .prod .cb{padding:20px 22px 24px;display:flex;flex-direction:column;gap:6px;flex:1}
