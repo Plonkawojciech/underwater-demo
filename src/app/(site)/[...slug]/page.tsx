@@ -1,53 +1,51 @@
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
-import { db } from '@/lib/data'
+import { notFound, permanentRedirect } from 'next/navigation'
+import { firstParam, parseMonth, parsePage, searchQuery } from '@/lib/presentation'
+import { resolveRoute, type FixedRoute } from '@/views/resolve'
+import { resolvedMeta } from '@/views/meta'
 import { ShopIndex, CategoryPage, ProductPage } from '@/views/shop'
 import { CoursesIndex, CoursePage } from '@/views/training'
+import { ArticleIndex, ArticlePage, AlbumPage, AlbumsIndex, CalendarPage, EventPage, TripPage, TripsIndex } from '@/views/content'
 import { ContactPage } from '@/views/pages'
+import { RichBody } from '@/components/content'
 
-type Props = { params: Promise<{ slug: string[] }> }
-const parse = (segs: string[]) => segs.map((s, i) => (i === segs.length - 1 ? s.replace(/\.html$/, '') : s))
-
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const segs = parse((await params).slug)
-  const p = segs.join('/')
-  const payload = await db()
-  const fixed: Record<string, string> = {
-    'sklep-nurkowy': 'Sklep nurkowy Warszawa',
-    'kursy-nurkowania': 'Kursy nurkowania PADI w Warszawie',
-    kontakt: 'Kontakt',
-  }
-  if (fixed[p]) return { title: fixed[p] }
-  if (segs[0] === 'kursy-nurkowania' && segs[1]) {
-    const r = await payload.find({ collection: 'courses', where: { slug: { equals: segs[1] } }, limit: 1 })
-    return r.docs[0] ? { title: `Kurs nurkowania ${r.docs[0].name}`, description: r.docs[0].lead || undefined } : {}
-  }
-  if (/^\d+-/.test(segs[segs.length - 1])) {
-    const pr = await payload.find({ collection: 'products', where: { slug: { equals: p } }, limit: 1 })
-    if (pr.docs[0]) return { title: pr.docs[0].name, description: pr.docs[0].short || undefined }
-    const c = await payload.find({ collection: 'categories', where: { slug: { equals: p } }, limit: 1 })
-    if (c.docs[0]) return { title: `${c.docs[0].name} — sklep nurkowy` }
-  }
-  return {}
+type Props = {
+  params: Promise<{ slug: string[] }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-export default async function Page({ params }: Props) {
-  const segs = parse((await params).slug)
-  const p = segs.join('/')
-  const payload = await db()
-  if (p === 'sklep-nurkowy') return <ShopIndex />
-  if (p === 'kursy-nurkowania') return <CoursesIndex />
-  if (p === 'kontakt') return <ContactPage />
-  if (segs[0] === 'kursy-nurkowania' && segs.length === 2) {
-    const r = await payload.find({ collection: 'courses', where: { slug: { equals: segs[1] } }, limit: 1, depth: 1 })
-    if (!r.docs[0]) notFound()
-    return <CoursePage course={r.docs[0]} />
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const r = await resolveRoute((await params).slug.join('/'))
+  return r ? resolvedMeta(r) : { title: 'Nie znaleziono strony', robots: { index: false, follow: false } }
+}
+
+function fixedView(route: FixedRoute, page: number, q: Record<string, string | string[] | undefined>) {
+  switch (route) {
+    case 'shop': return <ShopIndex page={page} q={searchQuery(q.q)} />
+    case 'courses': return <CoursesIndex page={page} org={firstParam(q.org)} />
+    case 'contact': return <ContactPage />
+    case 'trips': return <TripsIndex page={page} past={firstParam(q.widok) === 'minione'} />
+    case 'calendar': return <CalendarPage page={page} month={parseMonth(q.miesiac)} />
+    case 'news': return <ArticleIndex kind="news" page={page} />
+    case 'reports': return <ArticleIndex kind="report" page={page} />
+    case 'albums': return <AlbumsIndex page={page} />
   }
-  if (/^\d+-/.test(segs[segs.length - 1])) {
-    const pr = await payload.find({ collection: 'products', where: { slug: { equals: p } }, limit: 1, depth: 2 })
-    if (pr.docs[0]) return <ProductPage product={pr.docs[0]} />
-    const c = await payload.find({ collection: 'categories', where: { slug: { equals: p } }, limit: 1, depth: 1 })
-    if (c.docs[0]) return <CategoryPage category={c.docs[0]} />
+}
+
+export default async function Page({ params, searchParams }: Props) {
+  const [{ slug }, q] = await Promise.all([params, searchParams])
+  const r = await resolveRoute(slug.join('/'))
+  if (!r) notFound()
+  const page = parsePage(q.strona)
+  switch (r.kind) {
+    case 'redirect': permanentRedirect(r.to)
+    case 'fixed': return <>{r.source?.body || r.source?.lead ? <section className="section light"><div className="wrap article">{r.source.lead ? <p className="lead">{r.source.lead}</p> : null}{r.source.body ? <RichBody html={r.source.body} /> : null}</div></section> : null}{fixedView(r.route, page, q)}</>
+    case 'product': return <ProductPage product={r.doc} />
+    case 'category': return <CategoryPage category={r.doc} page={page} />
+    case 'course': return <CoursePage course={r.doc} />
+    case 'page': return <ArticlePage page={r.doc} />
+    case 'trip': return <TripPage trip={r.doc} />
+    case 'album': return <AlbumPage album={r.doc} page={page} />
+    case 'event': return <EventPage event={r.doc} />
   }
-  notFound()
 }

@@ -1,0 +1,48 @@
+diff --git a/lib-cjs/sqlite3.js b/lib-cjs/sqlite3.js
+index f4796126b19f6ec1e1df0b7c42db38a666004b3b..8850189320d6b5878d64dc56b017ac3493017e8e 100644
+--- a/lib-cjs/sqlite3.js
++++ b/lib-cjs/sqlite3.js
+@@ -66,6 +66,9 @@ function _createClient(config) {
+         syncPeriod: config.syncInterval,
+     };
+     const db = new libsql_1.default(path, options);
++    db.pragma("busy_timeout=5000");
++    db.pragma("synchronous=FULL");
++    db.pragma("foreign_keys=ON");
+     executeStmt(db, "SELECT 1 AS checkThatTheDatabaseCanBeOpened", config.intMode);
+     return new Sqlite3Client(path, options, db, config.intMode);
+ }
+@@ -183,6 +186,9 @@ class Sqlite3Client {
+     #getDb() {
+         if (this.#db === null) {
+             this.#db = new libsql_1.default(this.#path, this.#options);
++            this.#db.pragma("busy_timeout=5000");
++            this.#db.pragma("synchronous=FULL");
++            this.#db.pragma("foreign_keys=ON");
+         }
+         return this.#db;
+     }
+diff --git a/lib-esm/sqlite3.js b/lib-esm/sqlite3.js
+index 8aa7047c389fe062247a43b4c01d916a47cfb930..3ef30c34a892f9b641bd6c7abcac79feba861c57 100644
+--- a/lib-esm/sqlite3.js
++++ b/lib-esm/sqlite3.js
+@@ -45,6 +45,9 @@ export function _createClient(config) {
+         syncPeriod: config.syncInterval,
+     };
+     const db = new Database(path, options);
++    db.pragma("busy_timeout=5000");
++    db.pragma("synchronous=FULL");
++    db.pragma("foreign_keys=ON");
+     executeStmt(db, "SELECT 1 AS checkThatTheDatabaseCanBeOpened", config.intMode);
+     return new Sqlite3Client(path, options, db, config.intMode);
+ }
+@@ -161,6 +164,9 @@ export class Sqlite3Client {
+     #getDb() {
+         if (this.#db === null) {
+             this.#db = new Database(this.#path, this.#options);
++            this.#db.pragma("busy_timeout=5000");
++            this.#db.pragma("synchronous=FULL");
++            this.#db.pragma("foreign_keys=ON");
+         }
+         return this.#db;
+     }

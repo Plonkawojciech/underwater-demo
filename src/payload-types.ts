@@ -70,8 +70,21 @@ export interface Config {
     products: Product;
     categories: Category;
     courses: Course;
+    'course-sessions': CourseSession;
+    pages: Page;
+    trips: Trip;
+    albums: Album;
+    events: Event;
     signups: Signup;
     orders: Order;
+    'payment-attempts': PaymentAttempt;
+    'payment-events': PaymentEvent;
+    outbox: Outbox;
+    contacts: Contact;
+    newsletter: Newsletter;
+    redirects: Redirect;
+    'import-runs': ImportRun;
+    'audit-events': AuditEvent;
     media: Media;
     users: User;
     'payload-kv': PayloadKv;
@@ -84,8 +97,21 @@ export interface Config {
     products: ProductsSelect<false> | ProductsSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
     courses: CoursesSelect<false> | CoursesSelect<true>;
+    'course-sessions': CourseSessionsSelect<false> | CourseSessionsSelect<true>;
+    pages: PagesSelect<false> | PagesSelect<true>;
+    trips: TripsSelect<false> | TripsSelect<true>;
+    albums: AlbumsSelect<false> | AlbumsSelect<true>;
+    events: EventsSelect<false> | EventsSelect<true>;
     signups: SignupsSelect<false> | SignupsSelect<true>;
     orders: OrdersSelect<false> | OrdersSelect<true>;
+    'payment-attempts': PaymentAttemptsSelect<false> | PaymentAttemptsSelect<true>;
+    'payment-events': PaymentEventsSelect<false> | PaymentEventsSelect<true>;
+    outbox: OutboxSelect<false> | OutboxSelect<true>;
+    contacts: ContactsSelect<false> | ContactsSelect<true>;
+    newsletter: NewsletterSelect<false> | NewsletterSelect<true>;
+    redirects: RedirectsSelect<false> | RedirectsSelect<true>;
+    'import-runs': ImportRunsSelect<false> | ImportRunsSelect<true>;
+    'audit-events': AuditEventsSelect<false> | AuditEventsSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     users: UsersSelect<false> | UsersSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -146,8 +172,13 @@ export interface Product {
    */
   slug: string;
   category: number | Category;
+  categories?: (number | Category)[] | null;
   categoryName?: string | null;
   manufacturer?: string | null;
+  sku?: string | null;
+  priceCents?: number | null;
+  salePriceCents?: number | null;
+  taxRate?: number | null;
   price: number;
   /**
    * Puste = brak promocji
@@ -156,6 +187,10 @@ export interface Product {
   stock?: number | null;
   images?: (number | Media)[] | null;
   short?: string | null;
+  /**
+   * Treść HTML ze źródła; przed publikacją aplikacja usuwa niebezpieczne elementy.
+   */
+  body?: string | null;
   features?:
     | {
         text: string;
@@ -165,6 +200,9 @@ export interface Product {
   variants?:
     | {
         label: string;
+        sku?: string | null;
+        legacyKey?: string | null;
+        priceCents?: number | null;
         stock?: number | null;
         image?: (number | null) | Media;
         id?: string | null;
@@ -179,6 +217,18 @@ export interface Product {
     | null;
   featured?: boolean | null;
   warranty?: string | null;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -200,6 +250,18 @@ export interface Category {
   parent?: (number | null) | Category;
   image?: (number | null) | Media;
   order?: number | null;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -210,6 +272,9 @@ export interface Category {
 export interface Media {
   id: number;
   alt?: string | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -258,6 +323,10 @@ export interface Course {
   price?: number | null;
   minAge?: number | null;
   lead?: string | null;
+  /**
+   * Treść HTML ze źródła; przed publikacją aplikacja usuwa niebezpieczne elementy.
+   */
+  body?: string | null;
   image?: (number | null) | Media;
   gallery?: (number | Media)[] | null;
   sections?:
@@ -275,6 +344,180 @@ export interface Course {
     | null;
   featured?: boolean | null;
   order?: number | null;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "course-sessions".
+ */
+export interface CourseSession {
+  id: number;
+  title: string;
+  course: number | Course;
+  startsAt: string;
+  endsAt?: string | null;
+  location?: string | null;
+  priceCents?: number | null;
+  /**
+   * Puste pole oznacza brak potwierdzonego limitu. Formularz zbiera zgłoszenia; nie deklaruje wolnych miejsc.
+   */
+  capacity?: number | null;
+  reserved?: number | null;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "pages".
+ */
+export interface Page {
+  id: number;
+  title: string;
+  path: string;
+  kind: 'page' | 'news' | 'report' | 'legal';
+  lead?: string | null;
+  /**
+   * Treść HTML ze źródła; przed publikacją aplikacja usuwa niebezpieczne elementy.
+   */
+  body?: string | null;
+  image?: (number | null) | Media;
+  album?: (number | null) | Album;
+  publishedAt?: string | null;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "albums".
+ */
+export interface Album {
+  id: number;
+  title: string;
+  path: string;
+  description?: string | null;
+  date?: string | null;
+  photos?:
+    | {
+        image: number | Media;
+        caption?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "trips".
+ */
+export interface Trip {
+  id: number;
+  title: string;
+  path: string;
+  location?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  priceCents?: number | null;
+  lead?: string | null;
+  /**
+   * Treść HTML ze źródła; przed publikacją aplikacja usuwa niebezpieczne elementy.
+   */
+  body?: string | null;
+  image?: (number | null) | Media;
+  album?: (number | null) | Album;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events".
+ */
+export interface Event {
+  id: number;
+  title: string;
+  startsAt: string;
+  endsAt?: string | null;
+  location?: string | null;
+  path?: string | null;
+  /**
+   * Treść HTML ze źródła; przed publikacją aplikacja usuwa niebezpieczne elementy.
+   */
+  body?: string | null;
+  courseSession?: (number | null) | CourseSession;
+  trip?: (number | null) | Trip;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -285,6 +528,14 @@ export interface Course {
 export interface Signup {
   id: number;
   course: number | Course;
+  session?: (number | null) | CourseSession;
+  privacyAccepted: boolean;
+  consentVersion?: string | null;
+  reservationExpiresAt?: string | null;
+  confirmationTokenHash?: string | null;
+  deduplicationKey?: string | null;
+  emailConfirmedAt?: string | null;
+  reservationReleased?: boolean | null;
   courseName?: string | null;
   name: string;
   email: string;
@@ -308,15 +559,189 @@ export interface Order {
   items?:
     | {
         product: number | Product;
-        productName?: string | null;
+        productName: string;
+        sku?: string | null;
+        variantId?: string | null;
         variant?: string | null;
         qty: number;
         price: number;
+        unitPriceCents: number;
+        lineTotalCents: number;
+        taxRate?: number | null;
         id?: string | null;
       }[]
     | null;
   total: number;
-  status?: ('new' | 'paid' | 'shipped' | 'cancelled') | null;
+  subtotalCents?: number | null;
+  deliveryCents?: number | null;
+  totalCents?: number | null;
+  currency?: 'PLN' | null;
+  deliveryMethod?: string | null;
+  deliveryLabel?: string | null;
+  status?: ('new' | 'paid' | 'shipped' | 'cancelled' | 'expired') | null;
+  paymentStatus?: ('pending' | 'paid' | 'failed' | 'cancelled' | 'expired') | null;
+  paymentReviewRequired?: boolean | null;
+  stockReleased?: boolean | null;
+  idempotencyKey?: string | null;
+  fingerprint?: string | null;
+  accessTokenHash?: string | null;
+  expiresAt?: string | null;
+  paidAt?: string | null;
+  privacyAccepted: boolean;
+  termsAccepted: boolean;
+  consentVersion?: string | null;
+  mode?: 'test' | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payment-attempts".
+ */
+export interface PaymentAttempt {
+  id: number;
+  order: number | Order;
+  provider: string;
+  reference?: string | null;
+  amountCents?: number | null;
+  currency?: 'PLN' | null;
+  status?: ('pending' | 'paid' | 'failed' | 'cancelled' | 'expired') | null;
+  expiresAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payment-events".
+ */
+export interface PaymentEvent {
+  id: number;
+  eventKey?: string | null;
+  attempt: number | PaymentAttempt;
+  digest?: string | null;
+  outcome: 'paid' | 'failed' | 'cancelled';
+  accepted?: boolean | null;
+  reason?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Skrzynka testowa. Wiadomości nie są wysyłane do odbiorców.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "outbox".
+ */
+export interface Outbox {
+  id: number;
+  deduplicationKey: string;
+  recipient: string;
+  subject: string;
+  body: string;
+  status?: 'captured' | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "contacts".
+ */
+export interface Contact {
+  id: number;
+  name: string;
+  email: string;
+  phone?: string | null;
+  message: string;
+  privacyAccepted: boolean;
+  consentVersion?: string | null;
+  status?: ('new' | 'contacted' | 'closed') | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "newsletter".
+ */
+export interface Newsletter {
+  id: number;
+  email: string;
+  status?: ('pending' | 'active' | 'unsubscribed') | null;
+  confirmationTokenHash?: string | null;
+  unsubscribeTokenHash?: string | null;
+  confirmationExpiresAt?: string | null;
+  confirmedAt?: string | null;
+  unsubscribedAt?: string | null;
+  consentVersion?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "redirects".
+ */
+export interface Redirect {
+  id: number;
+  from: string;
+  to: string;
+  reason?: string | null;
+  published?: boolean | null;
+  legacyKey?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  importedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  legacyPath?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    image?: (number | null) | Media;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "import-runs".
+ */
+export interface ImportRun {
+  id: number;
+  runKey: string;
+  sourceManifestHash: string;
+  status?: ('running' | 'complete' | 'failed' | 'needs-review') | null;
+  sourceType?: string | null;
+  counts?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  unresolved?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-events".
+ */
+export interface AuditEvent {
+  id: number;
+  actor: number | User;
+  targetCollection: string;
+  targetId: number;
+  command: string;
+  beforeStatus?: string | null;
+  afterStatus?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -327,6 +752,7 @@ export interface Order {
 export interface User {
   id: number;
   name?: string | null;
+  role: 'admin' | 'editor' | 'operations';
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -334,6 +760,7 @@ export interface User {
   resetPasswordExpiration?: string | null;
   salt?: string | null;
   hash?: string | null;
+  resetPasswordRequestedAt?: string | null;
   loginAttempts?: number | null;
   lockUntil?: string | null;
   sessions?:
@@ -383,12 +810,64 @@ export interface PayloadLockedDocument {
         value: number | Course;
       } | null)
     | ({
+        relationTo: 'course-sessions';
+        value: number | CourseSession;
+      } | null)
+    | ({
+        relationTo: 'pages';
+        value: number | Page;
+      } | null)
+    | ({
+        relationTo: 'trips';
+        value: number | Trip;
+      } | null)
+    | ({
+        relationTo: 'albums';
+        value: number | Album;
+      } | null)
+    | ({
+        relationTo: 'events';
+        value: number | Event;
+      } | null)
+    | ({
         relationTo: 'signups';
         value: number | Signup;
       } | null)
     | ({
         relationTo: 'orders';
         value: number | Order;
+      } | null)
+    | ({
+        relationTo: 'payment-attempts';
+        value: number | PaymentAttempt;
+      } | null)
+    | ({
+        relationTo: 'payment-events';
+        value: number | PaymentEvent;
+      } | null)
+    | ({
+        relationTo: 'outbox';
+        value: number | Outbox;
+      } | null)
+    | ({
+        relationTo: 'contacts';
+        value: number | Contact;
+      } | null)
+    | ({
+        relationTo: 'newsletter';
+        value: number | Newsletter;
+      } | null)
+    | ({
+        relationTo: 'redirects';
+        value: number | Redirect;
+      } | null)
+    | ({
+        relationTo: 'import-runs';
+        value: number | ImportRun;
+      } | null)
+    | ({
+        relationTo: 'audit-events';
+        value: number | AuditEvent;
       } | null)
     | ({
         relationTo: 'media';
@@ -449,13 +928,19 @@ export interface ProductsSelect<T extends boolean = true> {
   vmId?: T;
   slug?: T;
   category?: T;
+  categories?: T;
   categoryName?: T;
   manufacturer?: T;
+  sku?: T;
+  priceCents?: T;
+  salePriceCents?: T;
+  taxRate?: T;
   price?: T;
   salePrice?: T;
   stock?: T;
   images?: T;
   short?: T;
+  body?: T;
   features?:
     | T
     | {
@@ -466,6 +951,9 @@ export interface ProductsSelect<T extends boolean = true> {
     | T
     | {
         label?: T;
+        sku?: T;
+        legacyKey?: T;
+        priceCents?: T;
         stock?: T;
         image?: T;
         id?: T;
@@ -479,6 +967,20 @@ export interface ProductsSelect<T extends boolean = true> {
       };
   featured?: T;
   warranty?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -493,6 +995,20 @@ export interface CategoriesSelect<T extends boolean = true> {
   parent?: T;
   image?: T;
   order?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -510,6 +1026,7 @@ export interface CoursesSelect<T extends boolean = true> {
   price?: T;
   minAge?: T;
   lead?: T;
+  body?: T;
   image?: T;
   gallery?: T;
   sections?:
@@ -527,6 +1044,175 @@ export interface CoursesSelect<T extends boolean = true> {
       };
   featured?: T;
   order?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "course-sessions_select".
+ */
+export interface CourseSessionsSelect<T extends boolean = true> {
+  title?: T;
+  course?: T;
+  startsAt?: T;
+  endsAt?: T;
+  location?: T;
+  priceCents?: T;
+  capacity?: T;
+  reserved?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "pages_select".
+ */
+export interface PagesSelect<T extends boolean = true> {
+  title?: T;
+  path?: T;
+  kind?: T;
+  lead?: T;
+  body?: T;
+  image?: T;
+  album?: T;
+  publishedAt?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "trips_select".
+ */
+export interface TripsSelect<T extends boolean = true> {
+  title?: T;
+  path?: T;
+  location?: T;
+  startsAt?: T;
+  endsAt?: T;
+  priceCents?: T;
+  lead?: T;
+  body?: T;
+  image?: T;
+  album?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "albums_select".
+ */
+export interface AlbumsSelect<T extends boolean = true> {
+  title?: T;
+  path?: T;
+  description?: T;
+  date?: T;
+  photos?:
+    | T
+    | {
+        image?: T;
+        caption?: T;
+        id?: T;
+      };
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events_select".
+ */
+export interface EventsSelect<T extends boolean = true> {
+  title?: T;
+  startsAt?: T;
+  endsAt?: T;
+  location?: T;
+  path?: T;
+  body?: T;
+  courseSession?: T;
+  trip?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -536,6 +1222,14 @@ export interface CoursesSelect<T extends boolean = true> {
  */
 export interface SignupsSelect<T extends boolean = true> {
   course?: T;
+  session?: T;
+  privacyAccepted?: T;
+  consentVersion?: T;
+  reservationExpiresAt?: T;
+  confirmationTokenHash?: T;
+  deduplicationKey?: T;
+  emailConfirmedAt?: T;
+  reservationReleased?: T;
   courseName?: T;
   name?: T;
   email?: T;
@@ -560,13 +1254,163 @@ export interface OrdersSelect<T extends boolean = true> {
     | {
         product?: T;
         productName?: T;
+        sku?: T;
+        variantId?: T;
         variant?: T;
         qty?: T;
         price?: T;
+        unitPriceCents?: T;
+        lineTotalCents?: T;
+        taxRate?: T;
         id?: T;
       };
   total?: T;
+  subtotalCents?: T;
+  deliveryCents?: T;
+  totalCents?: T;
+  currency?: T;
+  deliveryMethod?: T;
+  deliveryLabel?: T;
   status?: T;
+  paymentStatus?: T;
+  paymentReviewRequired?: T;
+  stockReleased?: T;
+  idempotencyKey?: T;
+  fingerprint?: T;
+  accessTokenHash?: T;
+  expiresAt?: T;
+  paidAt?: T;
+  privacyAccepted?: T;
+  termsAccepted?: T;
+  consentVersion?: T;
+  mode?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payment-attempts_select".
+ */
+export interface PaymentAttemptsSelect<T extends boolean = true> {
+  order?: T;
+  provider?: T;
+  reference?: T;
+  amountCents?: T;
+  currency?: T;
+  status?: T;
+  expiresAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payment-events_select".
+ */
+export interface PaymentEventsSelect<T extends boolean = true> {
+  eventKey?: T;
+  attempt?: T;
+  digest?: T;
+  outcome?: T;
+  accepted?: T;
+  reason?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "outbox_select".
+ */
+export interface OutboxSelect<T extends boolean = true> {
+  deduplicationKey?: T;
+  recipient?: T;
+  subject?: T;
+  body?: T;
+  status?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "contacts_select".
+ */
+export interface ContactsSelect<T extends boolean = true> {
+  name?: T;
+  email?: T;
+  phone?: T;
+  message?: T;
+  privacyAccepted?: T;
+  consentVersion?: T;
+  status?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "newsletter_select".
+ */
+export interface NewsletterSelect<T extends boolean = true> {
+  email?: T;
+  status?: T;
+  confirmationTokenHash?: T;
+  unsubscribeTokenHash?: T;
+  confirmationExpiresAt?: T;
+  confirmedAt?: T;
+  unsubscribedAt?: T;
+  consentVersion?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "redirects_select".
+ */
+export interface RedirectsSelect<T extends boolean = true> {
+  from?: T;
+  to?: T;
+  reason?: T;
+  published?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
+  importedAt?: T;
+  sourceUpdatedAt?: T;
+  legacyPath?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "import-runs_select".
+ */
+export interface ImportRunsSelect<T extends boolean = true> {
+  runKey?: T;
+  sourceManifestHash?: T;
+  status?: T;
+  sourceType?: T;
+  counts?: T;
+  unresolved?: T;
+  finishedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-events_select".
+ */
+export interface AuditEventsSelect<T extends boolean = true> {
+  actor?: T;
+  targetCollection?: T;
+  targetId?: T;
+  command?: T;
+  beforeStatus?: T;
+  afterStatus?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -576,6 +1420,9 @@ export interface OrdersSelect<T extends boolean = true> {
  */
 export interface MediaSelect<T extends boolean = true> {
   alt?: T;
+  legacyKey?: T;
+  sourceHash?: T;
+  importRun?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
@@ -618,6 +1465,7 @@ export interface MediaSelect<T extends boolean = true> {
  */
 export interface UsersSelect<T extends boolean = true> {
   name?: T;
+  role?: T;
   updatedAt?: T;
   createdAt?: T;
   email?: T;
@@ -625,6 +1473,7 @@ export interface UsersSelect<T extends boolean = true> {
   resetPasswordExpiration?: T;
   salt?: T;
   hash?: T;
+  resetPasswordRequestedAt?: T;
   loginAttempts?: T;
   lockUntil?: T;
   sessions?:
@@ -692,6 +1541,15 @@ export interface Setting {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  deliveryMethods?:
+    | {
+        key: string;
+        label: string;
+        priceCents: number;
+        enabled?: boolean | null;
+        id?: string | null;
+      }[]
+    | null;
   nip?: string | null;
   facebook?: string | null;
   youtube?: string | null;
@@ -711,6 +1569,15 @@ export interface SettingsSelect<T extends boolean = true> {
   phone?: T;
   email?: T;
   address?: T;
+  deliveryMethods?:
+    | T
+    | {
+        key?: T;
+        label?: T;
+        priceCents?: T;
+        enabled?: T;
+        id?: T;
+      };
   nip?: T;
   facebook?: T;
   youtube?: T;

@@ -1,12 +1,24 @@
 import type { CollectionConfig } from 'payload'
+import { privateSubmissionAccess } from '../lib/access'
+import { serviceWrite } from './commerceFields'
 
 export const Signups: CollectionConfig = {
   slug: 'signups',
   labels: { singular: 'Zgłoszenie na kurs', plural: 'Zgłoszenia na kursy' },
   admin: { useAsTitle: 'name', group: 'Szkolenia', defaultColumns: ['name', 'courseName', 'phone', 'email', 'status', 'createdAt'] },
-  access: { create: () => true },
+  access: { ...privateSubmissionAccess, update: () => false, delete: () => false },
+  hooks: { beforeChange: [serviceWrite] },
   fields: [
+    { name: 'operationalActions', type: 'ui', admin: { components: { Field: '@/components/admin/RecordActions' } } },
     { name: 'course', label: 'Kurs', type: 'relationship', relationTo: 'courses', required: true },
+    { name: 'session', type: 'relationship', relationTo: 'course-sessions', index: true },
+    { name: 'privacyAccepted', type: 'checkbox', required: true },
+    { name: 'consentVersion', type: 'text' },
+    { name: 'reservationExpiresAt', type: 'date', index: true, admin: { readOnly: true } },
+    { name: 'confirmationTokenHash', type: 'text', unique: true, admin: { hidden: true } },
+    { name: 'deduplicationKey', type: 'text', unique: true, admin: { hidden: true } },
+    { name: 'emailConfirmedAt', type: 'date', admin: { readOnly: true } },
+    { name: 'reservationReleased', type: 'checkbox', defaultValue: false },
     { name: 'courseName', label: 'Kurs', type: 'text', virtual: 'course.name', admin: { hidden: true } },
     { name: 'name', label: 'Imię i nazwisko', type: 'text', required: true },
     { type: 'row', fields: [

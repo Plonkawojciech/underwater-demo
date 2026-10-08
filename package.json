@@ -7,28 +7,45 @@
     "dev": "next dev -p 3011",
     "build": "next build",
     "start": "next start -p 3000",
-    "seed": "tsx --env-file=.env scripts/seed.ts",
+    "seed": "tsx scripts/seed.ts",
     "generate:types": "payload generate:types",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test --test-concurrency=1 tests/*.test.ts tests/ui/*.test.ts"
   },
   "dependencies": {
-    "@payloadcms/db-sqlite": "latest",
-    "@payloadcms/next": "latest",
-    "@payloadcms/richtext-lexical": "latest",
-    "@payloadcms/translations": "latest",
-    "graphql": "^16.11.0",
-    "next": "latest",
-    "payload": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "sharp": "latest"
+    "@payloadcms/db-sqlite": "3.90.2",
+    "@payloadcms/next": "3.90.2",
+    "@payloadcms/richtext-lexical": "3.90.2",
+    "@payloadcms/translations": "3.90.2",
+    "@payloadcms/ui": "3.90.2",
+    "graphql": "16.14.2",
+    "next": "16.4.0",
+    "payload": "3.90.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "sanitize-html": "2.18.0",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
-    "@types/node": "^22",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "tsx": "latest",
-    "typescript": "^5"
+    "@types/node": "22.20.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/sanitize-html": "2.16.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "overrides": {
+      "dompurify": "3.4.16",
+      "undici": "7.29.1",
+      "source-map-js": "1.2.2",
+      "sass": "1.105.1",
+      "fast-uri": "3.1.8",
+      "@esbuild-kit/core-utils>esbuild": "0.25.12"
+    },
+    "patchedDependencies": {
+      "@libsql/client@0.14.0": "patches/@libsql__client@0.14.0.patch"
+    }
+  }
 }

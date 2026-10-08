@@ -1,93 +1,153 @@
 import Link from 'next/link'
-import { db, imgUrl, imgAlt, dateLong, dateShort, zl } from '@/lib/data'
+import type { Metadata } from 'next'
+import {
+  asObject, contentHref, courseHref, mediaUrl, plainText, excerpt, telHref,
+  type CourseDoc, type EventDoc, type PageDoc, type ProductDoc, type SessionDoc, type TripDoc,
+} from '@/lib/presentation'
 import { ProductCard } from '@/components/ProductCard'
+import { ArchiveItem, ArchiveList, DateRange, DateText } from '@/components/content'
+import { getSettings, isPreview, nowISO, publicFind } from '@/views/query'
+import { CourseLadder, nextByCourse, upcomingSessions } from '@/views/training'
+import { hrefOf } from '@/views/meta'
+
+export const metadata: Metadata = {
+  alternates: { canonical: '/' },
+  robots: isPreview() ? { index: false, follow: false } : undefined,
+}
 
 export default async function Home() {
-  const payload = await db()
-  const [s, products, courses] = await Promise.all([
-    payload.findGlobal({ slug: 'settings' }),
-    payload.find({ collection: 'products', where: { featured: { equals: true } }, limit: 3, depth: 1 }),
-    payload.find({ collection: 'courses', sort: 'order', limit: 6 }),
+  const now = nowISO()
+  const [s, featured, courses, sessions, trips, events, news] = await Promise.all([
+    getSettings(),
+    publicFind<ProductDoc>('products', { where: { featured: { equals: true } }, limit: 4, depth: 1, sort: 'name' }),
+    publicFind<CourseDoc>('courses', { limit: 6, depth: 0, sort: 'order' }),
+    upcomingSessions(),
+    publicFind<TripDoc>('trips', { where: { or: [{ startsAt: { greater_than_equal: now } }, { endsAt: { greater_than_equal: now } }] }, limit: 3, depth: 1, sort: 'startsAt' }),
+    publicFind<EventDoc>('events', { where: { startsAt: { greater_than_equal: now } }, limit: 5, depth: 2, sort: 'startsAt' }),
+    publicFind<PageDoc>('pages', { where: { kind: { in: ['news', 'report'] } }, limit: 3, depth: 1, sort: '-publishedAt' }),
   ])
-  const owd = courses.docs.find((c) => c.nextDate)
+  // Without featured products the shop section shows the first page of the catalogue instead.
+  const products = featured.docs.length ? featured.docs : (await publicFind<ProductDoc>('products', { limit: 4, depth: 1, sort: 'name' })).docs
+  const next = nextByCourse(sessions)
+  const first = sessions[0]
+  const firstCourse = first ? courses.docs.find((c) => c.id === (typeof first.course === 'object' ? first.course.id : first.course)) : undefined
+  const hero = mediaUrl(s.heroImage, 'full') || '/img/wyprawa.jpg'
+  const tel = telHref(s.phone)
+  const trip = trips.docs[0]
+  const tripHref = trip ? hrefOf({ kind: 'trip', doc: trip }) : null
   return (
     <>
       <section className="hero">
-        <div className="hero-media">{s.heroImage
-          ? <img src={imgUrl(s.heroImage, 'full')} alt="" fetchPriority="high" />
-          : <img src="/img/wyprawa.jpg" alt="" fetchPriority="high" />}</div>
+        <div className="hero-media"><img src={hero} alt="" fetchPriority="high" /></div>
         <div className="wrap">
-          {owd?.nextDate && <p className="hero-next"><em />Najbliższy kurs {owd.name.replace('PADI ', '')} · {dateLong(owd.nextDate)}</p>}
-          <h1 className="display">{s.heroTitle}</h1>
-          <p className="lead">{s.heroText}</p>
+          {first ? (
+            <p className="hero-next">
+              <em aria-hidden="true" />
+              {firstCourse
+                ? <Link href={courseHref(firstCourse.slug)}>Najbliższy kurs: {firstCourse.name}, <DateText value={first.startsAt} /></Link>
+                : <>Najbliższy termin: {first.title}, <DateText value={first.startsAt} /></>}
+            </p>
+          ) : null}
+          <h1 className="display">{s.heroTitle || 'Underwater.pl'}</h1>
+          {s.heroText ? <p className="lead">{s.heroText}</p> : null}
           <div className="hero-cta">
-            <Link className="btn btn-solid" href="/kursy-nurkowania.html">Wybierz kurs <span className="arrow">→</span></Link>
+            <Link className="btn btn-solid" href="/kursy-nurkowania.html">Kursy nurkowania</Link>
             <Link className="btn btn-line" href="/sklep-nurkowy.html">Sklep nurkowy</Link>
           </div>
         </div>
       </section>
 
-      <section className="facts"><div className="wrap">
-        <div className="fact"><b>1998</b><span>Od tego roku szkolimy</span></div>
-        <div className="fact"><b>3</b><span>Federacje: PADI, TDI/SDI, IANTD</span></div>
-        <div className="fact"><b>4</b><span>Osoby w grupie kursowej</span></div>
-        <div className="fact"><b>40 m</b><span>Do tylu metrów szkolimy</span></div>
-      </div></section>
-
-      <section className="section light"><div className="wrap">
-        <div className="sechead">
-          <div>
-            <p className="kicker">Szkolenia</p>
-            <h2 className="h2">Od pierwszego oddechu pod wodą<br />do stopnia zawodowego</h2>
+      {courses.docs.length > 0 && (
+        <section className="section light" aria-labelledby="h-kursy"><div className="wrap">
+          <div className="sechead">
+            <div><h2 id="h-kursy" className="h2">Kursy nurkowania</h2></div>
+            <Link className="textlink" href="/kursy-nurkowania.html">Wszystkie kursy</Link>
           </div>
-          <Link className="textlink" href="/kursy-nurkowania.html">Wszystkie kursy →</Link>
-        </div>
-        <div className="ladder">
-          {courses.docs.map((c) => (
-            <Link key={c.id} href={`/kursy-nurkowania/${c.slug}.html`} className="rowlink">
-              <span className="depth">{c.maxDepth ? <>{c.maxDepth} m<small>uprawnienia</small></> : <>—<small>specjalizacja</small></>}</span>
-              <span><strong>{c.name}</strong><p>{c.lead}</p></span>
-              <span className="go">{c.nextDate ? `Start ${dateShort(c.nextDate)}` : c.price ? zl(c.price) : 'Zapytaj'} <span className="arrow">→</span></span>
-            </Link>
-          ))}
-        </div>
-      </div></section>
+          <CourseLadder courses={courses.docs} next={next} />
+        </div></section>
+      )}
 
-      <section className="band">
-        <img src="/img/wyprawa.jpg" alt="Nurkowanie w jaskini na Morzu Śródziemnym" loading="lazy" />
-        <div className="wrap">
-          <p className="kicker" style={{ color: 'var(--brass-lift)' }}>Wyprawy</p>
-          <h2 className="h2">Nurkujemy tam, gdzie sami chcemy wracać</h2>
-          <p className="lead">Malta i Gozo, Morze Czerwone, chorwacki Adriatyk, jaskinie Sardynii. Małe grupy, instruktor z Warszawy na miejscu, plan nurkowy ustalany rano przy kawie, a nie w biurze podróży.</p>
-          <div className="hero-cta"><Link className="btn btn-line" href="/kontakt.html">Zapytaj o najbliższy termin</Link></div>
-        </div>
-      </section>
+      {trip && tripHref && (
+        <section className="band" aria-labelledby="h-wyprawy">
+          <img src={mediaUrl(trip.image, 'full') || '/img/wyprawa.jpg'} alt="" loading="lazy" />
+          <div className="wrap">
+            <p className="band-d mono">{trip.startsAt ? <DateRange from={trip.startsAt} to={trip.endsAt} /> : null}{trip.location ? `${trip.startsAt ? ', ' : ''}${trip.location}` : ''}</p>
+            <h2 id="h-wyprawy" className="h2">{trip.title}</h2>
+            {trip.lead ? <p className="lead">{trip.lead}</p> : null}
+            <div className="hero-cta">
+              <Link className="btn btn-line" href={tripHref}>Szczegóły wyprawy</Link>
+              <Link className="btn btn-line" href="/wyprawy.html">Wszystkie wyprawy</Link>
+            </div>
+          </div>
+        </section>
+      )}
 
-      <section className="section light"><div className="wrap">
-        <div className="sechead">
-          <div>
-            <p className="kicker">Sklep nurkowy</p>
-            <h2 className="h2">Sprzęt, który sami zabieramy pod wodę</h2>
-            <p className="lead">{s.priceGuarantee}</p>
+      {events.docs.length > 0 && (
+        <section className="section light" aria-labelledby="h-kal"><div className="wrap">
+          <div className="sechead">
+            <div><h2 id="h-kal" className="h2">Najbliższe terminy</h2></div>
+            <Link className="textlink" href="/kalendarz.html">Cały kalendarz</Link>
           </div>
-          <Link className="textlink" href="/sklep-nurkowy.html">Cały sklep →</Link>
-        </div>
-        <div className="grid">{products.docs.map((p) => <ProductCard key={p.id} p={p} />)}</div>
-      </div></section>
+          <ul className="ladder cal">
+            {events.docs.map((e) => {
+              const course = asObject(asObject<SessionDoc>(e.courseSession)?.course ?? null)
+              const t = asObject(e.trip)
+              const href = e.path ? contentHref(e.path) : t ? hrefOf({ kind: 'trip', doc: t }) : course ? courseHref(course.slug) : '/kalendarz.html'
+              return (
+                <li key={e.id}>
+                  <Link href={href || '/kalendarz.html'} className="rowlink">
+                    <span className="depth cal-d"><DateText value={e.startsAt} format="short" /></span>
+                    <span className="rowtext"><strong>{e.title}</strong><span className="rowlead"><DateRange from={e.startsAt} to={e.endsAt} />{e.location ? `, ${e.location}` : ''}</span></span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </div></section>
+      )}
 
-      <section className="section dark"><div className="wrap">
-        <div className="sechead" style={{ marginBottom: 0 }}>
-          <div>
-            <p className="kicker">Centrum nurkowe</p>
-            <h2 className="h2">ul. Okopowa 31/94, Warszawa</h2>
-            <p className="lead">Zadzwoń albo wpadnij. Doradzimy sprzęt, przyjmiemy automat do serwisu i powiemy szczerze, który kurs ma dla Ciebie sens, a który jeszcze nie.</p>
+      {products.length > 0 && (
+        <section className="section light" aria-labelledby="h-sklep"><div className="wrap">
+          <div className="sechead">
+            <div>
+              <h2 id="h-sklep" className="h2">Sklep nurkowy</h2>
+              {s.priceGuarantee ? <p className="lead">{s.priceGuarantee}</p> : null}
+            </div>
+            <Link className="textlink" href="/sklep-nurkowy.html">Cały sklep</Link>
           </div>
-          <div style={{ display: 'grid', gap: 14 }}>
-            <a className="btn btn-solid" href={`tel:${(s.phone || '').replace(/\s/g, '')}`}>{s.phone}</a>
-            <Link className="btn btn-line" href="/kontakt.html">Napisz do nas</Link>
+          <div className="grid">{products.map((p) => <ProductCard key={p.id} p={p} />)}</div>
+        </div></section>
+      )}
+
+      {news.docs.length > 0 && (
+        <section className="section light section-tight" aria-labelledby="h-news"><div className="wrap">
+          <div className="sechead">
+            <div><h2 id="h-news" className="h2">Aktualności i relacje</h2></div>
+            <Link className="textlink" href="/aktualnosci.html">Wszystkie aktualności</Link>
           </div>
-        </div>
-      </div></section>
+          <ArchiveList label="Najnowsze wpisy">
+            {news.docs.map((d) => {
+              const href = hrefOf({ kind: 'page', doc: d })
+              return href ? <ArchiveItem key={d.id} level="h3" href={href} title={d.title} date={d.publishedAt} excerpt={d.lead || excerpt(plainText(d.body), 180)} /> : null
+            })}
+          </ArchiveList>
+        </div></section>
+      )}
+
+      {(s.address || s.phone) && (
+        <section className="section dark" aria-labelledby="h-kontakt"><div className="wrap">
+          <div className="sechead sechead-end">
+            <div>
+              <h2 id="h-kontakt" className="h2">Centrum nurkowe</h2>
+              {s.address ? <p className="lead pre">{s.address}</p> : null}
+            </div>
+            <div className="cta-stack">
+              {tel ? <a className="btn btn-solid" href={tel}>{s.phone}</a> : null}
+              <Link className="btn btn-line" href="/kontakt.html">Napisz do nas</Link>
+            </div>
+          </div>
+        </div></section>
+      )}
     </>
   )
 }

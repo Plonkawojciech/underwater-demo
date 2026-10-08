@@ -3,5 +3,21 @@ node_modules
 *.db
 *.db-journal
 /media
-.env
+.env*
+*.db-wal
+*.db-shm
+*.sqlite*
+*.sql
+/private-data/
+/test-results/
+/playwright-report/
 .DS_Store
+__pycache__/
+*.py[cod]
+# Local client correspondence, commercial plan and execution notes stay private.
+/tmp/
+/docs/plans/2026-10-08-underwater-plan-domkniecia.md
+/docs/plans/2026-10-08-underwater-prompt-realizacji.md
+/docs/implementation/2026-10-08-checkpoint.md
+/docs/implementation/rano-dla-wojtka.md
+/docs/implementation/*-prompt.md

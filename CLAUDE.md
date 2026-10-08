@@ -2,12 +2,13 @@
 
 Demo nowej strony i sklepu dla Underwater.pl (centrum nurkowe, Warszawa). Next.js 16 + Payload CMS 3 (SQLite) w jednej aplikacji: front i panel `/admin`.
 
-- Dev: `pnpm dev` (port 3011). Seed: `pnpm seed` (pomija, gdy dane już są; `--force` dokłada).
-- **Zakres jest celowo mały — to demo, nie migracja.** Trzy główne ekrany: strona główna, sklep (lista + kategoria + karta produktu) i kurs. Do tego kontakt i koszyk. Dane: 6 kategorii, 3 produkty, 5 kursów.
-- Adresy URL 1:1 jak na obecnej Joomli (`/3625-maska-soprastek-corona.html`, `/kursy-nurkowania/padi-open-water-diver.html`) — obsługuje je `src/app/(site)/[...slug]/page.tsx`. To argument sprzedażowy: pozycje w Google zostają.
-- Kolekcje: `src/collections/*` (Produkty, Kategorie, Kursy, Zgłoszenia, Zamówienia, Media, Użytkownicy) + globalne `Ustawienia strony` (`src/globals/Settings.ts`).
+- Dev: `pnpm dev` (port 3011). Seed: `UNDERWATER_DEMO_SEED=1 pnpm seed` (wyłącznie jawne dane demonstracyjne; bez force).
+- Realizacja rozszerzenia jest autoryzowana od 08.10.2026. Zakres i odbiór: `docs/plans/2026-10-08-underwater-plan-domkniecia.md`; aktualny stan i ograniczenia: `docs/implementation/2026-10-08-checkpoint.md`. Nie deklarować kompletności importu z publicznego crawla.
+- **Produkcja klienta tylko do odczytu.** Implementacja, import i testy wyłącznie na własnej VM Programo, izolowanej bazie i mediach. Finalna migracja do klienta pozostaje osobnym etapem. Brak źródłowej bazy lub sandboxu operatora trafia do `docs/implementation/rano-dla-wojtka.md` i nie zatrzymuje niezależnych prac.
+- Adresy URL 1:1 jak na obecnej Joomli (`/3625-maska-soprastek-corona.html`, `/kursy-nurkowania/padi-open-water-diver.html`) — obsługuje je `src/app/(site)/[...slug]/page.tsx`. Zachowanie adresów ogranicza ryzyko SEO; nie gwarantuje pozycji Google.
+- Model: 20 kolekcji `src/collections/*` — katalog, kursy/terminy, treści, wyjazdy, kalendarz, galerie, prywatne zgłoszenia/zamówienia, płatności testowe, przechwytywana poczta, audyt i importy; globalne `Ustawienia strony`. Role rozdzielają redakcję, operacje i administrację.
 - Design: ciemna baza (`--abyss`), ciepły papier (`--shell`), akcent mosiądz (`--brass`). Newsreader na nagłówki, Archivo na tekst, IBM Plex Mono na dane techniczne. Cały system w `src/app/(site)/globals.css`.
 - Zdjęcia scen (hero, wyprawa, kurs, serwis, sklep) wygenerował Codex — `assets-gen/`, kopie w `public/img/` i `seed-media/`. Zdjęcia produktów pochodzą z obecnej strony klienta.
-- Zmiana schematu: `pnpm exec payload migrate:create <nazwa>`, commit `src/migrations/`. `push: false` — schemat idzie wyłącznie migracjami, więc dev nie pyta o zmiany.
-- Deploy: Coolify (projekt `underwater-demo`, Dockerfile), domena `underwater-demo.programo.pl` (działa też `underwater.programo.pl`), wolumen `/data` na bazę i media. `scripts/start.sh` robi migrate + seed + start.
-- Panel demo: `demo@underwater.pl` / `underwater2026`.
+- Zmiana schematu: `pnpm exec tsx scripts/database/schema.ts create <nazwa>` z jawnym środowiskiem przekazanym bez plików `.env*`; migrować przez `schema.ts migrate`. Typy: `schema.ts types`. `push: false`; tylko addytywne migracje, bez resetów danych i bez destrukcyjnego rollbacku. Testy: `pnpm test`, `pnpm typecheck`, clean build i właściwy flow przeglądarkowy.
+- Deploy: własny Coolify, aplikacja 15 / `qpf9uvw5p9hky4sn5vamun36`, adres `underwater-demo.programo.pl`; `underwater.programo.pl` przekierowuje na kanoniczny podgląd. Nowe dane w `/data/preview/underwater-preview.db` i `/data/preview/media`; stare `/data/payload.db` i `/data/media` zachować. Start migruje i przerywa pracę po błędzie, zachowując dane. Runtime wymaga prywatnego dostępu i sekretów z Keychain. Nie kopiować źródłowego FTP, zrzutów ani klucza archiwum do obrazu aplikacji.
+- `patches/@libsql__client@0.14.0.patch` utrzymuje PRAGMA po otwarciu nowego połączenia. Po aktualizacji drivera ponownie sprawdzić transakcje, busy timeout, FULL i klucze obce; nie usuwać poprawki bez dowodu.

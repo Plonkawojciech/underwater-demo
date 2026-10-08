@@ -1,10 +1,12 @@
 import type { CollectionConfig } from 'payload'
+import { publicContentAccess } from '../lib/access'
+import { contentFields, longContent } from './fields'
 
 export const Courses: CollectionConfig = {
   slug: 'courses',
   labels: { singular: 'Kurs', plural: 'Kursy nurkowania' },
   admin: { useAsTitle: 'name', group: 'Szkolenia', defaultColumns: ['name', 'org', 'maxDepth', 'nextDate', 'price'] },
-  access: { read: () => true },
+  access: publicContentAccess,
   fields: [
     { name: 'name', label: 'Nazwa kursu', type: 'text', required: true },
     { name: 'slug', label: 'Adres (slug)', type: 'text', required: true, unique: true, admin: { description: 'Adres: /kursy-nurkowania/{slug}.html — bez zmian względem obecnej strony' } },
@@ -27,6 +29,7 @@ export const Courses: CollectionConfig = {
       ],
     },
     { name: 'lead', label: 'Zajawka (1–2 zdania)', type: 'textarea' },
+    longContent,
     { name: 'image', label: 'Zdjęcie', type: 'upload', relationTo: 'media' },
     { name: 'gallery', label: 'Galeria', type: 'upload', relationTo: 'media', hasMany: true },
     {
@@ -42,5 +45,6 @@ export const Courses: CollectionConfig = {
     { name: 'includes', label: 'Co obejmuje cena', type: 'array', fields: [{ name: 'text', label: 'Pozycja', type: 'text', required: true }] },
     { name: 'featured', label: 'Wyróżnij na stronie głównej', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar' } },
     { name: 'order', label: 'Kolejność', type: 'number', defaultValue: 0, admin: { position: 'sidebar' } },
+    ...contentFields,
   ],
 }

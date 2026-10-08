@@ -1,36 +1,41 @@
 'use server'
 import { db } from './data'
+import { contact, signup, subscribe } from './forms/service'
+import { actionOrigin, rateLimit } from './http'
+import { email, hash, InputError } from './commerce/input'
+import { checkout } from './commerce/order'
 
 export type FormState = { ok: boolean; message: string; number?: string }
-
-export async function createSignup(_prev: FormState, form: FormData): Promise<FormState> {
-  const name = String(form.get('name') || '').trim()
-  const email = String(form.get('email') || '').trim()
-  const phone = String(form.get('phone') || '').trim()
-  const course = Number(form.get('course'))
-  if (!name || !email || !phone || !course) return { ok: false, message: 'Uzupełnij imię, e-mail i telefon.' }
-  const payload = await db()
-  await payload.create({ collection: 'signups', data: { name, email, phone, course, message: String(form.get('message') || '') } })
-  return { ok: true, message: 'Zgłoszenie przyjęte. Oddzwonimy w ciągu jednego dnia roboczego.' }
+function fromForm(form: FormData) {
+  const value: Record<string, unknown> = Object.fromEntries(form.entries())
+  for (const key of ['privacyAccepted', 'termsAccepted', 'consent']) value[key] = ['on', 'true', '1'].includes(String(form.get(key) || ''))
+  for (const key of ['course', 'session']) if (form.get(key)) value[key] = Number(form.get(key))
+  return value
 }
-
-type CartItem = { id: number; variant?: string; qty: number; price: number }
-
+async function runForm(form: FormData, operation: 'contact' | 'signup' | 'newsletter'): Promise<FormState> {
+  try {
+    await actionOrigin(); rateLimit(`form:${operation}:global`, 100)
+    const input = fromForm(form)
+    rateLimit(`form:${operation}:${hash(email(input.email))}`, 5)
+    const payload = await db()
+    return operation === 'contact' ? await contact(payload, input) : operation === 'signup' ? await signup(payload, input) : await subscribe(payload, input)
+  } catch (error) {
+    if (error instanceof InputError) return { ok: false, message: error.message }
+    console.error('[underwater] Form failed:', error instanceof Error ? error.name : 'UnknownError')
+    return { ok: false, message: 'Nie udało się zapisać zgłoszenia. Spróbuj ponownie.' }
+  }
+}
+export async function createSignup(_prev: FormState, form: FormData) { return runForm(form, 'signup') }
+export async function createContact(_prev: FormState, form: FormData) { return runForm(form, 'contact') }
+export async function subscribeNewsletter(_prev: FormState, form: FormData) { return runForm(form, 'newsletter') }
+// Compatibility for the former demo action: no trust in submitted prices.
 export async function createOrder(_prev: FormState, form: FormData): Promise<FormState> {
-  const customerName = String(form.get('name') || '').trim()
-  const email = String(form.get('email') || '').trim()
-  const phone = String(form.get('phone') || '').trim()
-  const address = String(form.get('address') || '').trim()
-  let items: CartItem[] = []
-  try { items = JSON.parse(String(form.get('items') || '[]')) } catch { items = [] }
-  if (!customerName || !email || !address) return { ok: false, message: 'Uzupełnij dane do wysyłki.' }
-  if (!items.length) return { ok: false, message: 'Koszyk jest pusty.' }
-  const payload = await db()
-  const total = items.reduce((s, i) => s + i.price * i.qty, 0)
-  const number = 'UW-' + new Date().toISOString().slice(2, 10).replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000)
-  await payload.create({ collection: 'orders', data: {
-    number, customerName, email, phone, address, total,
-    items: items.map((i) => ({ product: i.id, variant: i.variant, qty: i.qty, price: i.price })),
-  } })
-  return { ok: true, message: 'Zamówienie przyjęte.', number }
+  try {
+    await actionOrigin()
+    const input = fromForm(form)
+    let items: unknown
+    try { items = JSON.parse(String(form.get('items') || '[]')) } catch { throw new InputError('Nieprawidłowy koszyk.') }
+    const result = await checkout(await db(), { idempotencyKey: input.idempotencyKey, customerName: input.name, email: input.email, phone: input.phone, address: input.address, deliveryMethod: input.deliveryMethod, privacyAccepted: input.privacyAccepted, termsAccepted: input.termsAccepted, website: input.website, items })
+    return { ok: true, message: 'Zapisaliśmy zamówienie testowe.', number: result.number }
+  } catch (error) { return { ok: false, message: error instanceof InputError ? error.message : 'Nie udało się zapisać zamówienia.' } }
 }

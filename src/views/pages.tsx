@@ -1,36 +1,30 @@
-import Link from 'next/link'
-import { db } from '@/lib/data'
+import { telHref } from '@/lib/presentation'
+import { ContactForm, NewsletterForm } from '@/components/ContactForm'
+import { Crumbs } from '@/components/content'
+import { getLegalLinks, getSettings } from './query'
 
 export async function ContactPage() {
-  const payload = await db()
-  const s = await payload.findGlobal({ slug: 'settings' })
-  const tel = (s.phone || '').replace(/\s/g, '')
+  const [s, legal] = await Promise.all([getSettings(), getLegalLinks()])
+  const tel = telHref(s.phone)
+  const privacy = legal.find((l) => l.role === 'privacy')?.href
+  const has = s.phone || s.email || s.address || s.nip
   return (
     <div className="section light"><div className="wrap">
-      <div className="crumbs"><Link href="/">Start</Link><span>/</span><span>Kontakt</span></div>
+      <Crumbs items={[{ label: 'Kontakt' }]} />
       <div className="contact">
         <div>
-          <p className="kicker">Centrum nurkowe</p>
-          <h1 className="h2">Wpadnij, zadzwoń albo napisz</h1>
-          <p className="lead">Jesteśmy na Woli, pięć minut od Ronda Daszyńskiego. Przyjmujemy sprzęt do serwisu, doradzamy przy zakupach i zapisujemy na kursy.</p>
-          <div className="dl">
-            <div><b>Telefon</b><a href={`tel:${tel}`}>{s.phone}</a></div>
-            <div><b>E-mail</b><a href={`mailto:${s.email}`}>{s.email}</a></div>
-            <div><b>Adres</b><span style={{ whiteSpace: 'pre-line' }}>{s.address}</span></div>
-            <div><b>NIP</b><span className="mono">{s.nip}</span></div>
-          </div>
+          <h1 className="h2">Kontakt</h1>
+          {has ? (
+            <dl className="dl">
+              {s.phone ? <div><dt>Telefon</dt><dd>{tel ? <a href={tel}>{s.phone}</a> : s.phone}</dd></div> : null}
+              {s.email ? <div><dt>E-mail</dt><dd><a href={`mailto:${s.email}`}>{s.email}</a></dd></div> : null}
+              {s.address ? <div><dt>Adres</dt><dd className="pre">{s.address}</dd></div> : null}
+              {s.nip ? <div><dt>NIP</dt><dd className="mono">{s.nip}</dd></div> : null}
+            </dl>
+          ) : <p className="lead">Dane kontaktowe nie są jeszcze uzupełnione w ustawieniach strony.</p>}
+          <div className="contact-nl"><NewsletterForm privacyHref={privacy} /></div>
         </div>
-        <form className="form" action="/kontakt.html" method="get" style={{ alignSelf: 'start' }}>
-          <p className="subh" style={{ marginTop: 0 }}>Napisz do nas</p>
-          <label>Imię i nazwisko<input name="name" required /></label>
-          <div className="form-row">
-            <label>E-mail<input name="email" type="email" required /></label>
-            <label>Telefon<input name="phone" type="tel" /></label>
-          </div>
-          <label>Wiadomość<textarea name="message" rows={5} required /></label>
-          <button className="btn btn-solid">Wyślij wiadomość <span className="arrow">→</span></button>
-          <p className="note">W wersji produkcyjnej wiadomości trafiają do panelu i na e-mail. Bez captchy z obrazkami — ochrona przed spamem działa w tle.</p>
-        </form>
+        <div><ContactForm privacyHref={privacy} /></div>
       </div>
     </div></div>
   )

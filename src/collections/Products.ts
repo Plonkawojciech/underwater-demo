@@ -1,4 +1,7 @@
 import type { CollectionConfig } from 'payload'
+import { validateCatalog } from '../lib/catalog-validation'
+import { publicContentAccess } from '../lib/access'
+import { contentFields, longContent } from './fields'
 
 export const Products: CollectionConfig = {
   slug: 'products',
@@ -9,8 +12,10 @@ export const Products: CollectionConfig = {
     defaultColumns: ['name', 'categoryName', 'price', 'salePrice', 'stock', 'featured'],
     description: 'Każdy produkt ma ten sam adres co dziś: /{ID}-{nazwa}.html',
   },
-  access: { read: () => true },
+  access: publicContentAccess,
+  hooks: { beforeValidate: [validateCatalog] },
   fields: [
+    { name: 'inventoryActions', type: 'ui', admin: { components: { Field: '@/components/admin/InventoryActions' } } },
     { name: 'name', label: 'Nazwa', type: 'text', required: true },
     {
       type: 'row',
@@ -20,18 +25,24 @@ export const Products: CollectionConfig = {
       ],
     },
     { name: 'category', label: 'Kategoria', type: 'relationship', relationTo: 'categories', required: true },
+    { name: 'categories', label: 'Wszystkie kategorie', type: 'relationship', relationTo: 'categories', hasMany: true },
     { name: 'categoryName', label: 'Kategoria', type: 'text', virtual: 'category.name', admin: { hidden: true } },
     { name: 'manufacturer', label: 'Producent', type: 'text' },
+    { name: 'sku', label: 'SKU', type: 'text', index: true },
+    { name: 'priceCents', label: 'Cena w groszach', type: 'number', min: 0 },
+    { name: 'salePriceCents', label: 'Cena promocyjna w groszach', type: 'number', min: 0 },
+    { name: 'taxRate', label: 'Stawka VAT (%)', type: 'number', min: 0, max: 100 },
     {
       type: 'row',
       fields: [
         { name: 'price', label: 'Cena (zł)', type: 'number', required: true, admin: { width: '33%' } },
         { name: 'salePrice', label: 'Cena promocyjna (zł)', type: 'number', admin: { width: '33%', description: 'Puste = brak promocji' } },
-        { name: 'stock', label: 'Stan magazynowy', type: 'number', defaultValue: 0, admin: { width: '33%' } },
+        { name: 'stock', label: 'Stan magazynowy', type: 'number', defaultValue: 0, admin: { width: '33%', readOnly: true } },
       ],
     },
     { name: 'images', label: 'Zdjęcia', type: 'upload', relationTo: 'media', hasMany: true },
     { name: 'short', label: 'Krótki opis', type: 'textarea' },
+    longContent,
     {
       name: 'features',
       label: 'Cechy produktu',
@@ -47,7 +58,10 @@ export const Products: CollectionConfig = {
       fields: [
         { type: 'row', fields: [
           { name: 'label', label: 'Nazwa wariantu', type: 'text', required: true },
-          { name: 'stock', label: 'Stan', type: 'number', defaultValue: 0 },
+          { name: 'sku', label: 'SKU wariantu', type: 'text' },
+          { name: 'legacyKey', label: 'ID źródłowy', type: 'text' },
+          { name: 'priceCents', label: 'Cena w groszach (puste = cena produktu)', type: 'number', min: 0 },
+          { name: 'stock', label: 'Stan', type: 'number', defaultValue: 0, admin: { readOnly: true } },
           { name: 'image', label: 'Zdjęcie wariantu', type: 'upload', relationTo: 'media' },
         ] },
       ],
@@ -63,6 +77,7 @@ export const Products: CollectionConfig = {
       ] }],
     },
     { name: 'featured', label: 'Pokaż w promocjach na stronie głównej', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar' } },
-    { name: 'warranty', label: 'Gwarancja', type: 'text', defaultValue: '24 miesiące', admin: { position: 'sidebar' } },
+    { name: 'warranty', label: 'Gwarancja', type: 'text', admin: { position: 'sidebar' } },
+    ...contentFields,
   ],
 }
