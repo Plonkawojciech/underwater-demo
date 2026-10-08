@@ -57,7 +57,11 @@ class WriteLease {
 
 // Shared through globalThis so reloaded modules and several Payload instances
 // on the same file in one process use the same lease.
-const registry = globalThis as typeof globalThis & { underwaterWriteLeases?: Map<string, WriteLease> }
+const registry = globalThis as typeof globalThis & {
+  underwaterWriteLeases?: Map<string, WriteLease>
+  underwaterWriteAdapters?: WeakMap<object, WriteLease>
+  underwaterTransactionContext?: AsyncLocalStorage<{ open: boolean }>
+}
 function leaseFor(url: string) {
   const file = url.startsWith('file:') ? url.slice('file:'.length).split('?')[0] : ''
   if (!file || file.includes(':memory:')) return new WriteLease()
@@ -70,13 +74,16 @@ function leaseFor(url: string) {
 
 // Marks code that runs while its own transaction holds the lease. A new
 // transaction started there could only wait for itself, so it fails at once.
-const holding = new AsyncLocalStorage<{ open: boolean }>()
+// Next emits separate configuration, RSC, instrumentation and route modules,
+// while Payload caches one adapter on globalThis. Both its registration and
+// the callback context must therefore survive these module boundaries.
+const holding = registry.underwaterTransactionContext ||= new AsyncLocalStorage<{ open: boolean }>()
 export async function holdingTransaction<T>(run: () => Promise<T>): Promise<T> {
   const marker = { open: true }
   try { return await holding.run(marker, run) } finally { marker.open = false }
 }
 
-const leases = new WeakMap<object, WriteLease>()
+const leases = registry.underwaterWriteAdapters ||= new WeakMap<object, WriteLease>()
 export function writeLease(db: BaseDatabaseAdapter) {
   const lease = leases.get(db)
   if (!lease) throw new Error('The database adapter is not wrapped by leasedSqliteAdapter.')

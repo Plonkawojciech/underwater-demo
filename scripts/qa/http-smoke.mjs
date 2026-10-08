@@ -44,7 +44,8 @@ await check('Origins, content types and financial client fields', async () => {
   assert.equal((await request('/api/store/quote', { method: 'POST', headers: { origin, 'content-type': 'text/plain' }, body: '{}' })).status, 415)
   const products = await (await request('/api/products?depth=0&limit=100')).json()
   const product = products.docs.find(doc => doc.slug === '9999102-test-ostatnia-sztuka')
-  assert.ok(product && product.stock === 1, 'Disposable last-unit fixture is required.')
+  assert.ok(product && Number.isSafeInteger(product.stock) && product.stock >= 1, 'The explicitly synthetic stock fixture is required.')
+  const initialStock = product.stock
   const items = [{ id: product.id, qty: 1, price: 0.01 }]
   const quoted = await (await post('/api/store/quote', { items, deliveryMethod: 'test-delivery' })).json()
   assert.equal(quoted.quote.totalCents, 3500)
@@ -62,7 +63,7 @@ await check('Origins, content types and financial client fields', async () => {
     assert.equal(cancelled.status, 200)
   }
   const after = await (await request('/api/products/' + product.id + '?depth=0')).json()
-  assert.equal(after.stock, 1)
+  assert.equal(after.stock, initialStock)
 })
 await check('Bootstrap endpoint and authenticated upload decoding', async () => {
   const bootstrap = await post('/api/users/first-register', { email: 'unauthorized@example.invalid', password: 'synthetic-new-user-password', role: 'admin' })

@@ -12,7 +12,7 @@ import { checkout, paymentSummary, simulatePayment, acceptNotification, expireRe
 import { hash, InputError } from '../src/lib/commerce/input'
 import { TestPaymentProvider } from '../src/lib/commerce/provider'
 import { transaction } from '../src/lib/commerce/transaction'
-import { writeLease, WriteLeaseTimeout } from '../src/lib/sqlite-adapter'
+import { holdingTransaction, writeLease, WriteLeaseTimeout } from '../src/lib/sqlite-adapter'
 import { contact, signup, subscribe, newsletterToken } from '../src/lib/forms/service'
 import { confirmSignup, expireSignups } from '../src/lib/forms/reservations'
 import { adjustInventory, updateOperationalStatus } from '../src/lib/operations'
@@ -414,4 +414,29 @@ test('independent application processes cannot sell the same last stock unit', a
   assert.equal(results.filter(r => r.ok).length, 1)
   assert.equal((await payload.findByID({ collection: 'products', id: p.id, depth: 0 })).stock, 0)
   assert.equal((await payload.count({ collection: 'orders', where: { 'items.product': { equals: p.id } } })).totalDocs, 1)
+})
+
+// Next compiles configuration, instrumentation, RSC and route handlers into
+// separate module instances. Payload still caches one adapter in this process.
+const splitAdapter = () => import(new URL('../src/lib/sqlite-adapter.ts?underwater-split-module-regression', import.meta.url).href) as Promise<typeof import('../src/lib/sqlite-adapter')>
+test('split module instances recognize the same registered Payload adapter', async () => {
+  const split = await splitAdapter()
+  assert.notEqual(split.writeLease, writeLease, 'The fixture must evaluate a separate module instance.')
+  assert.equal(split.writeLease(payload.db), writeLease(payload.db))
+})
+
+test('split module instances share the held transaction context and refuse nested BEGIN', async () => {
+  const split = await splitAdapter()
+  assert.notEqual(split.holdingTransaction, holdingTransaction)
+  let unexpectedlyOpened: string | number | undefined
+  try {
+    await assert.rejects(split.holdingTransaction(async () => {
+      const id = await payload.db.beginTransaction()
+      if (id != null) unexpectedlyOpened = id
+    }), /inside a held transaction/)
+  } finally {
+    if (unexpectedlyOpened !== undefined) await payload.db.rollbackTransaction(unexpectedlyOpened)
+  }
+  assert.equal(openSessions(), 0)
+  await quickWrite('after-split-context')
 })

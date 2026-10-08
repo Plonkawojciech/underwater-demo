@@ -39,6 +39,7 @@ finally { delete process.env.UNDERWATER_ADMIN_PASSWORD; }
 '''
 REMOTE_RUN = r'''
 import json,subprocess,sys
+import re
 i=json.load(sys.stdin)
 app='qpf9uvw5p9hky4sn5vamun36'
 ids=subprocess.check_output(['docker','ps','--filter','name='+app+'-','--format','{{.ID}}'],text=True).split()
@@ -55,7 +56,9 @@ command=['docker','exec','-i',d['Id'],'node','--import','tsx','--input-type=modu
 result=subprocess.run(command,input=json.dumps(i.get('input',{})).encode(),capture_output=True)
 if result.returncode:
  # SDK errors can contain input; never forward their traces or supplied secrets.
- print(json.dumps({'operation':i['mode'],'success':False,'exitCode':result.returncode}))
+ stderr=result.stderr.decode(errors='replace')
+ kinds=sorted(set(re.findall(r'(?m)^(?:[A-Za-z0-9_.]*\.)?([A-Za-z][A-Za-z0-9]*Error)(?:\s*\[[A-Z_]+\])?:',stderr)))
+ print(json.dumps({'operation':i['mode'],'success':False,'exitCode':result.returncode,'errorTypes':kinds}))
  raise SystemExit(1)
 if not result.stdout.strip():
  print(json.dumps({'operation':i['mode'],'success':False,'reason':'Missing operation result; inspect state before any retry.'}))
@@ -88,7 +91,14 @@ def main():
     data = {'mode': args.mode, 'commit': args.commit, 'javascript': javascript, 'input': supplied}
     result = subprocess.run(['ssh', '-i', IDENTITY, '-o', 'BatchMode=yes', REMOTE, 'python3 -c ' + shlex.quote(REMOTE_RUN)], input=json.dumps(data).encode(), capture_output=True)
     del data, supplied
-    if result.returncode: raise RuntimeError('Isolated preview runtime operation failed. No credential or SDK trace was printed.')
+    if result.returncode:
+        # Only our remote guard's sanitized result is eligible for display.
+        try:
+            report = json.loads(result.stdout)
+            if report.get('operation') == args.mode and report.get('success') is False:
+                print(json.dumps(report))
+        except (ValueError, AttributeError): pass
+        raise RuntimeError('Isolated preview runtime operation failed. No credential or SDK trace was printed.')
     print(result.stdout.decode().strip())
 
 if __name__ == '__main__': main()
