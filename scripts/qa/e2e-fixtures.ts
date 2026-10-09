@@ -20,6 +20,8 @@ try {
     data: { email: 'qa-admin@example.invalid', password, name: 'TEST QA administrator', role: 'admin' } })
   const editor = await payload.create({ collection: 'users', overrideAccess: true, user: admin,
     data: { email: 'qa-editor@example.invalid', password, name: 'TEST QA redaktor', role: 'editor' } })
+  const operations = await payload.create({ collection: 'users', overrideAccess: true, user: admin,
+    data: { email: 'qa-operations@example.invalid', password, name: 'TEST QA obsługa', role: 'operations' } })
   const media = (await payload.find({ collection: 'media', limit: 1, depth: 0, overrideAccess: true })).docs[0]
   if (!media) throw new Error('Seed synthetic media before preparing the empty CI catalogue.')
   const category = await payload.create({ collection: 'categories', overrideAccess: true,
@@ -50,7 +52,7 @@ try {
     deliveryMethods: [{ key: 'test-pickup', label: 'TEST odbiór bez realizacji', priceCents: 0, enabled: true, kind: 'pickup', codAllowed: false }],
     testPayments: { bankTransferEnabled: true, codEnabled: false, offlineReservationMinutes: 2880, codSurchargeCents: 0 },
   } })
-  const manifest = { synthetic: true, origin: origin.origin, adminEmail: admin.email, editorEmail: editor.email,
+  const manifest = { synthetic: true, origin: origin.origin, adminEmail: admin.email, editorEmail: editor.email, operationsEmail: operations.email,
     categoryID: category.id, productID: product.id, enquiryProductID: enquiry.id, courseID: course.id, sessionID: session.id, postID: post.id,
     routes: { home: '/', category: '/' + category.slug + '.html', product: '/' + product.slug + '.html', course: '/kursy-nurkowania/' + course.slug + '.html', cart: '/koszyk', checkout: '/koszyk' } }
   await mkdir(root, { recursive: true }); await writeFile(path.join(root, 'e2e-fixtures.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 })

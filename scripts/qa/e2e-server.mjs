@@ -8,17 +8,22 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import ts from 'typescript'
 
+const port = Number(process.env.UNDERWATER_E2E_PORT || 3013)
+if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error('E2E requires a valid dedicated unprivileged port.')
+const artifactRoot = process.env.UNDERWATER_E2E_ARTIFACT_ROOT
+if (artifactRoot && !path.isAbsolute(artifactRoot)) throw new Error('A retained E2E artifact root must be absolute.')
+if (artifactRoot) await mkdir(artifactRoot, { recursive: true })
 await new Promise((resolve, reject) => {
   const probe = net.createServer(); probe.once('error', reject)
-  probe.listen(3013, '127.0.0.1', () => probe.close(resolve))
+  probe.listen(port, '127.0.0.1', () => probe.close(resolve))
 })
-const root = await mkdtemp(path.join(tmpdir(), 'underwater-e2e-'))
+const root = await mkdtemp(path.join(artifactRoot || tmpdir(), 'underwater-e2e-'))
 let native
 const env = { ...process.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1',
   UNDERWATER_ENVIRONMENT: 'test', UNDERWATER_DATA_ROOT: root,
   DATABASE_URI: `file:${root}/underwater-test.db`, MEDIA_DIR: `${root}/media`,
   PAYLOAD_SECRET: 'synthetic-e2e-ci-secret-not-a-runtime-credential-20261009',
-  UNDERWATER_ORIGIN: 'http://localhost:3013', NEXT_PUBLIC_SERVER_URL: 'http://localhost:3013',
+  UNDERWATER_ORIGIN: `http://localhost:${port}`, NEXT_PUBLIC_SERVER_URL: `http://localhost:${port}`,
   UNDERWATER_DEMO_SEED: '1', UNDERWATER_E2E_FIXTURES: '1', UNDERWATER_PAYMENT_PROVIDER: 'internal-test',
 }
 let server, cleaning = false, cleanupPromise
@@ -45,7 +50,10 @@ function cleanup() {
     while (Date.now() < deadline && owned.some(child => groupSignal(child, 0))) await delay(50)
     for (const child of owned) if (groupSignal(child, 0)) groupSignal(child, 'SIGKILL')
     await Promise.allSettled(owned.map(child => child.done))
-    await rm(root, { recursive: true, force: true })
+    if (artifactRoot) {
+      await writeFile(path.join(root, 'harness-cleanup.json'), JSON.stringify({ synthetic: true, origin: env.UNDERWATER_ORIGIN, root, retained: true, childPIDs: owned.map(child => child.pid), stopped: owned.every(child => !groupSignal(child, 0)), at: new Date().toISOString() }, null, 2), { mode: 0o600 })
+      console.log(`Synthetic E2E database and media preserved: ${root}`)
+    } else await rm(root, { recursive: true, force: true })
     if (native) await rm(native, { recursive: true, force: true })
   })()
 }
@@ -89,7 +97,7 @@ try {
   await runFixture('scripts/qa/e2e-fixtures.ts')
   const manifest = JSON.parse(await readFile(path.join(root, 'e2e-fixtures.json'), 'utf8'))
   if (manifest.synthetic !== true || manifest.origin !== env.UNDERWATER_ORIGIN || manifest.adminEmail !== 'qa-admin@example.invalid' || manifest.editorEmail !== 'qa-editor@example.invalid' || ![manifest.productID, manifest.courseID, manifest.sessionID].every(id => Number.isSafeInteger(id) && id > 0)) throw new Error('Synthetic fixtures were not prepared; a healthy empty server is not an E2E harness.')
-  server = start('next', ['start', '-p', '3013', '--hostname', '127.0.0.1'])
+  server = start('next', ['start', '-p', String(port), '--hostname', '127.0.0.1'])
   const code = await server.done
   if (!cleaning) process.exitCode = Number(code) || 1
 } finally { await cleanup() }
