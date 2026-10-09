@@ -13,7 +13,7 @@ import { checkout, paymentSummary, simulatePayment, acceptNotification, expireRe
 import { hash, InputError } from '../src/lib/commerce/input'
 import { TestPaymentProvider } from '../src/lib/commerce/provider'
 import { transaction } from '../src/lib/commerce/transaction'
-import { holdingTransaction, writeLease, WriteLeaseTimeout } from '../src/lib/sqlite-adapter'
+import { activeWriteTransactionCount, holdingTransaction, writeLease, WriteLeaseTimeout } from '../src/lib/sqlite-adapter'
 import { contact, signup, subscribe, newsletterToken } from '../src/lib/forms/service'
 import { confirmSignup, expireSignups } from '../src/lib/forms/reservations'
 import { adjustInventory, updateOperationalStatus } from '../src/lib/operations'
@@ -255,7 +255,7 @@ function failNextCommit(productId: number) {
   }) as typeof drizzle.transaction
   return () => { drizzle.transaction = original }
 }
-const openSessions = () => Object.keys(payload.db.sessions || {}).length
+const openSessions = () => activeWriteTransactionCount(payload.db)
 async function quickWrite(label: string) {
   const started = Date.now()
   const doc = await payload.create({ collection: 'categories', overrideAccess: true, data: { name: `TEST ${label}`, slug: `test-${label}-${randomUUID()}`, published: false } })
@@ -475,6 +475,15 @@ test('split module instances recognize the same registered Payload adapter', asy
   const split = await splitAdapter()
   assert.notEqual(split.writeLease, writeLease, 'The fixture must evaluate a separate module instance.')
   assert.equal(split.writeLease(payload.db), writeLease(payload.db))
+  assert.notEqual(split.activeWriteTransactionCount, activeWriteTransactionCount)
+  assert.equal(split.activeWriteTransactionCount(payload.db), 0)
+  const id = String(await payload.db.beginTransaction())
+  try {
+    assert.equal(activeWriteTransactionCount(payload.db), 1)
+    assert.equal(split.activeWriteTransactionCount(payload.db), 1)
+  } finally { await payload.db.rollbackTransaction(id) }
+  assert.equal(activeWriteTransactionCount(payload.db), 0)
+  assert.equal(split.activeWriteTransactionCount(payload.db), 0)
 })
 
 test('split module instances share the held transaction context and refuse nested BEGIN', async () => {

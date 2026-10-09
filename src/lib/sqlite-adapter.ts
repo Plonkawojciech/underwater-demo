@@ -60,6 +60,7 @@ class WriteLease {
 const registry = globalThis as typeof globalThis & {
   underwaterWriteLeases?: Map<string, WriteLease>
   underwaterWriteAdapters?: WeakMap<object, WriteLease>
+  underwaterWriteCompletions?: WeakMap<object, Set<Promise<void>>>
   underwaterTransactionContext?: AsyncLocalStorage<{ open: boolean }>
 }
 function leaseFor(url: string) {
@@ -84,50 +85,100 @@ export async function holdingTransaction<T>(run: () => Promise<T>): Promise<T> {
 }
 
 const leases = registry.underwaterWriteAdapters ||= new WeakMap<object, WriteLease>()
+const writeCompletions = registry.underwaterWriteCompletions ||= new WeakMap<object, Set<Promise<void>>>()
 export function writeLease(db: BaseDatabaseAdapter) {
   const lease = leases.get(db)
   if (!lease) throw new Error('The database adapter is not wrapped by leasedSqliteAdapter.')
   return lease
+}
+export function activeWriteTransactionCount(db: BaseDatabaseAdapter) {
+  const pending = writeCompletions.get(db)
+  if (!pending) throw new Error('The database adapter is not wrapped by leasedSqliteAdapter.')
+  return pending.size
 }
 
 function withWriteLease(adapter: SQLiteAdapter) {
   const lease = leaseFor(adapter.clientConfig.url)
   leases.set(adapter, lease)
   const sessions = adapter.sessions!
-  type Transaction = (typeof sessions)[string]['db']
+  const pendingCompletions = new Set<Promise<void>>()
+  writeCompletions.set(adapter, pendingCompletions)
+  type Session = (typeof sessions)[string]
+  type Transaction = Session['db']
+  const closedSessions = new WeakSet<Session>()
+  function closedSession(error: Error): Session {
+    const session = {
+      db: new Proxy({}, { get() { throw error } }) as Transaction,
+      resolve: () => Promise.reject(error), reject: () => Promise.resolve(),
+    }
+    closedSessions.add(session)
+    return session
+  }
   const resolveID = async (incoming: number | string | Promise<number | string>) => String((await incoming) ?? '')
+  // A shared lease can outlive this adapter's HMR cycle. Old waiters must
+  // remain cancelled even if a new connection opens before they are granted.
+  let destroying = false, lifecycle = 0
+  const assertWritable = (generation: number) => {
+    if (destroying || generation !== lifecycle) throw new Error('The SQLite adapter was destroyed before this write could start; wait for reconnect.')
+  }
+  const connect = adapter.connect!
+  adapter.connect = async function (options) {
+    await connect.call(this, options)
+    destroying = false
+  }
 
   adapter.beginTransaction = async options => {
+    const generation = lifecycle
+    assertWritable(generation)
     if (holding.getStore()?.open) throw new Error('A new write transaction was started inside a held transaction; pass the caller req (or its transaction was already rolled back).')
     await adapter.initializing
+    assertWritable(generation)
     const release = await lease.acquire()
     try {
+      assertWritable(generation)
       const id = randomUUID()
       const cancelled = new Error('UNDERWATER_TRANSACTION_CANCELLED')
       let finish!: () => void, abort!: () => void
       let opened!: (tx: Transaction) => void, failed!: (error: unknown) => void
       const ready = new Promise<Transaction>((resolve, reject) => { opened = resolve; failed = reject })
-      const completion: Promise<void> = adapter.drizzle.transaction(tx => new Promise<void>((resolve, reject) => {
-        finish = resolve
-        abort = () => reject(cancelled)
-        opened(tx as unknown as Transaction)
-      }), (options || adapter.transactionOptions) as never)
+      // Register before calling drizzle: native BEGIN runs synchronously and
+      // destruction may be reentrant before transaction() returns its promise.
+      let finishCompletion!: () => void, failCompletion!: (error: unknown) => void
+      const settled = new Promise<void>((resolve, reject) => { finishCompletion = resolve; failCompletion = reject })
+      pendingCompletions.add(settled)
+      settled.then(() => pendingCompletions.delete(settled), () => pendingCompletions.delete(settled))
+      let completion: Promise<void>
+      try {
+        completion = adapter.drizzle.transaction(tx => new Promise<void>((resolve, reject) => {
+          finish = resolve
+          abort = () => reject(cancelled)
+          opened(tx as unknown as Transaction)
+        }), (options || adapter.transactionOptions) as never)
+      } catch (error) { failCompletion(error); throw error }
       // The lease is released only after SQLite has finished COMMIT or ROLLBACK
       // (or BEGIN failed), whatever the outcome.
       completion.then(release, release)
       completion.catch(failed)
+      // Keep tracking through session registration and owner finalization.
+      // A removed session or another destroy's tombstone does not mean its
+      // native COMMIT/ROLLBACK has finished, so close must still wait for it.
+      completion.then(finishCompletion, error => { if (error === cancelled) finishCompletion(); else failCompletion(error) })
       const tx = await ready
+      try { assertWritable(generation) } catch (error) {
+        abort()
+        await completion.catch(rollbackError => { if (rollbackError !== cancelled) throw rollbackError })
+        throw error
+      }
       // A session abandoned by its caller would otherwise block every writer.
       const heldMs = lease.maxHoldMs
       const watchdog = setTimeout(() => {
         const session = sessions[id]
-        if (!session) return
+        if (!session || closedSessions.has(session)) return
         adapter.payload.logger.error({ msg: `Rolling back a write transaction held for over ${heldMs} ms.` })
         // Payload falls back to autocommit for an unknown transaction ID, so the
         // owner keeps a closed session: its later queries and COMMIT fail.
         const closed = new Error(`The write transaction was rolled back after being held for over ${heldMs} ms.`)
-        const db = new Proxy({}, { get() { throw closed } }) as Transaction
-        sessions[id] = { db, resolve: () => Promise.reject(closed), reject: () => Promise.resolve() }
+        sessions[id] = closedSession(closed)
         void session.reject().catch(() => undefined)
       }, heldMs)
       watchdog.unref()
@@ -149,7 +200,7 @@ function withWriteLease(adapter: SQLiteAdapter) {
     if (!id) return
     const session = sessions[id]
     if (!session) throw new Error('The transaction is no longer open at COMMIT; it was rolled back.')
-    delete sessions[id]
+    if (!closedSessions.has(session)) delete sessions[id]
     await session.resolve()
   }
 
@@ -157,7 +208,7 @@ function withWriteLease(adapter: SQLiteAdapter) {
     const id = await resolveID(incoming)
     const session = sessions[id]
     if (!session) return
-    delete sessions[id]
+    if (!closedSessions.has(session)) delete sessions[id]
     await session.reject()
   }
 
@@ -169,8 +220,11 @@ function withWriteLease(adapter: SQLiteAdapter) {
   // drizzle's updateOne never calls updateOne or begins a transaction itself.
   const updateOne = adapter.updateOne
   adapter.updateOne = async function (args) {
+    const generation = lifecycle
+    assertWritable(generation)
     if (!adapter.payload.collections[args.collection]?.config.auth) return updateOne.call(this, args)
     const id = args.req?.transactionID ? await resolveID(args.req.transactionID) : ''
+    assertWritable(generation)
     if (id) {
       // Payload would silently fall back to autocommit for a closed session.
       if (!sessions[id]) throw new Error('The caller transaction of this account write is no longer open; it was rolled back.')
@@ -178,15 +232,39 @@ function withWriteLease(adapter: SQLiteAdapter) {
     }
     if (holding.getStore()?.open) throw new Error('An account write without req was started inside a held transaction; pass the caller req.')
     await adapter.initializing
+    assertWritable(generation)
     const release = await lease.acquire()
-    try { return await updateOne.call(this, args) } finally { release() }
+    try { assertWritable(generation); return await updateOne.call(this, args) } finally { release() }
   }
 
-  // Never leave the shared lease held by a destroyed instance.
+  // Destroy is also Payload's HMR boundary: rollback first, then close and
+  // detach the native client so connect() creates a fresh one after init().
+  // The generic drizzle destroy only resets schema metadata. Finish cleanup
+  // even when rollback fails, but never turn that failure into success.
   const destroy = adapter.destroy
   adapter.destroy = async function () {
-    await Promise.allSettled(Object.keys(sessions).map(id => adapter.rollbackTransaction(id)))
-    return destroy?.call(this)
+    destroying = true
+    lifecycle++
+    // Missing sessions fall back to autocommit in upstream getTransaction.
+    // Install markers before any rollback can wake an old request. Keep them
+    // through later HMR and owner finalization: copies of its req may survive,
+    // and the adapter cannot prove they have all discarded the old ID. These
+    // markers retain no native transaction and live only with this adapter.
+    const live = Object.entries(sessions).flatMap(([id, session]) => {
+      if (closedSessions.has(session)) return []
+      sessions[id] = closedSession(new Error('The write transaction was rolled back because its SQLite adapter was destroyed.'))
+      return [session]
+    })
+    const results = await Promise.allSettled(live.map(session => Promise.resolve().then(() => session.reject())))
+    const pending = await Promise.allSettled([...pendingCompletions])
+    const errors = [...results, ...pending].flatMap(result => result.status === 'rejected' ? [result.reason] : [])
+    try {
+      this.client?.close()
+      if (!Reflect.deleteProperty(this, 'client')) throw new Error('The destroyed SQLite client could not be detached.')
+    } catch (error) { errors.push(error) }
+    try { await destroy?.call(this) } catch (error) { errors.push(error) }
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) throw new AggregateError(errors, 'SQLite adapter destruction failed.')
   }
   return adapter
 }
