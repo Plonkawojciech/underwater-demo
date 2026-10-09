@@ -6,6 +6,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
+import { buildSync } from 'esbuild'
 import { createLocalReq, getPayload, type Payload } from 'payload'
 import { sql } from '@payloadcms/db-sqlite'
 import { checkout, paymentSummary, simulatePayment, acceptNotification, expireReservations } from '../src/lib/commerce/order'
@@ -18,6 +19,10 @@ import { confirmSignup, expireSignups } from '../src/lib/forms/reservations'
 import { adjustInventory, updateOperationalStatus } from '../src/lib/operations'
 
 const root = mkdtempSync(path.join(tmpdir(), 'underwater-integration-'))
+const repo = fileURLToPath(new URL('..', import.meta.url))
+mkdirSync(path.join(repo, 'tmp'), { recursive: true })
+const workerRoot = mkdtempSync(path.join(repo, 'tmp/underwater-native-worker-'))
+const workerFile = path.join(workerRoot, 'checkout-worker.mjs')
 mkdirSync(path.join(root, 'media'))
 Object.assign(process.env, { UNDERWATER_ENVIRONMENT: 'test', UNDERWATER_DATA_ROOT: root, DATABASE_URI: `file:${root}/underwater-test.db`, MEDIA_DIR: `${root}/media`, NEXT_PUBLIC_SERVER_URL: 'http://localhost:3011', PAYLOAD_SECRET: 'synthetic-integration-test-secret-not-used-in-runtime' })
 let payload: Payload
@@ -30,12 +35,13 @@ async function product(stock: number, extra: Record<string, unknown> = {}) {
 }
 
 test.before(async () => {
+  buildSync({ entryPoints: [fileURLToPath(new URL('./transaction-worker.ts', import.meta.url))], outfile: workerFile, bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', define: { 'import.meta.url': JSON.stringify(new URL('../src/payload.config.ts', import.meta.url).href) } })
   const config = (await import('../src/payload.config')).default
   payload = await getPayload({ config, disableOnInit: true })
   await payload.db.migrate()
   category = (await payload.create({ collection: 'categories', overrideAccess: true, data: { name: 'TEST', slug: 'test', published: true } })).id
 })
-test.after(async () => { if (payload) await payload.destroy(); rmSync(root, { recursive: true, force: true }) })
+test.after(async () => { if (payload) await payload.destroy(); rmSync(root, { recursive: true, force: true }); rmSync(workerRoot, { recursive: true, force: true }) })
 
 test('last stock unit is reserved by exactly one concurrent checkout', async () => {
   const p = await product(1)
@@ -380,40 +386,84 @@ test('an abandoned transaction is rolled back after the hold limit and cannot be
   await quickWrite('after-abandoned')
 })
 
-// Under heavy machine load the tsx module hooks occasionally let a process exit
-// 0 before its module graph settles (seen with the stock adapter too). Such a
-// worker printed nothing; rerunning it with the same idempotency key is safe.
-async function childCheckout(input: ReturnType<typeof orderInput>): Promise<{ ok: boolean }> {
-  for (let attempt = 1; ; attempt++) {
-    try { return await childCheckoutOnce(input) }
-    catch (error) { if (attempt === 4 || !(error instanceof Error && error.message.startsWith('Worker returned no result'))) throw error }
-  }
-}
-function childCheckoutOnce(input: ReturnType<typeof orderInput>): Promise<{ ok: boolean }> {
-  return new Promise((resolve, reject) => {
-    // Load tsx as a hook in the worker itself: the tsx CLI relay process
-    // intermittently exited 0 before the worker printed its result.
-    const worker = fileURLToPath(new URL('./transaction-worker.ts', import.meta.url))
-    const child = spawn(process.execPath, ['--import', 'tsx', worker], { env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] })
-    let output = '', errors = ''
-    child.stdout.on('data', data => { output += data.toString() })
-    child.stderr.on('data', data => { errors += data.toString() })
-    child.on('error', reject)
+type WorkerResult = { ok: boolean; error?: string; status?: number; beginWaitMs?: number }
+function checkoutWorker() {
+  const bootstrap = fileURLToPath(new URL('./transaction-worker-bootstrap.mjs', import.meta.url))
+  const child = spawn(process.execPath, [bootstrap, workerFile], { env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+  if (!child.stdout || !child.stderr) { child.kill('SIGKILL'); throw new Error('Synthetic checkout worker requires output pipes.') }
+  const stdout = child.stdout, stderr = child.stderr
+  let output = '', errors = '', closed = false, terminalError: Error | undefined
+  const waiters = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
+  const observed = new Set<string>()
+  child.on('message', (message: any) => { if (typeof message?.kind === 'string') { observed.add(message.kind); waiters.get(message.kind)?.resolve(); waiters.delete(message.kind) } })
+  const event = (kind: string) => terminalError || closed ? Promise.reject(terminalError || new Error('Synthetic worker already closed.')) : observed.has(kind) ? Promise.resolve() : new Promise<void>((resolve, reject) => { waiters.set(kind, { resolve, reject }) })
+  const timeout = setTimeout(() => child.kill('SIGKILL'), 75_000)
+  const result = new Promise<WorkerResult>((resolve, reject) => {
+    stdout.on('data', data => { output += data.toString() })
+    stderr.on('data', data => { errors += data.toString() })
+    child.on('error', error => { terminalError = error; for (const waiter of waiters.values()) waiter.reject(error); reject(error) })
     child.on('close', code => {
-      if (code !== 0) { reject(new Error('Isolated checkout worker failed: ' + errors.slice(-300))); return }
+      closed = true; clearTimeout(timeout)
+      const failure = new Error('Isolated checkout worker failed or closed before its barrier: ' + errors.slice(-300))
+      terminalError ||= failure
+      for (const waiter of waiters.values()) waiter.reject(failure)
+      waiters.clear()
+      if (code !== 0) { reject(failure); return }
       const line = output.split('\n').find(line => line.startsWith('{"ok":'))
-      if (!line) { reject(new Error('Worker returned no result: ' + (output + errors).slice(-600))); return }
-      resolve(JSON.parse(line))
+      if (!line) { reject(new Error('Worker returned no result.')); return }
+      try {
+        const value = JSON.parse(line)
+        if (typeof value?.ok !== 'boolean') throw new Error('Invalid synthetic worker result.')
+        resolve(value)
+      } catch { reject(new Error('Invalid synthetic worker result.')) }
     })
-    child.stdin.end(JSON.stringify(input))
   })
+  // Attach rejection handling before readiness so failures cannot be unhandled.
+  const settled = result.then(value => ({ status: 'fulfilled' as const, value }), reason => ({ status: 'rejected' as const, reason }))
+  return { event, result: settled, send: (message: unknown) => child.send(message as any), stop: () => { if (!closed) child.kill('SIGKILL') } }
 }
 test('independent application processes cannot sell the same last stock unit', async () => {
   const p = await product(1)
-  const results = await Promise.all([childCheckout(orderInput(p.id)), childCheckout(orderInput(p.id))])
+  const holder = checkoutWorker(), contender = checkoutWorker()
+  let settled: Awaited<typeof holder.result>[]
+  try {
+    await Promise.all([holder.event('ready'), contender.event('ready')])
+    holder.send({ kind: 'start', hold: true, input: orderInput(p.id) })
+    await holder.event('locked')
+    contender.send({ kind: 'start', hold: false, input: orderInput(p.id) })
+    await contender.event('contending')
+    // Both are initialised; the contender enters BEGIN while the holder owns
+    // SQLite's real write lock. Release is an IPC command, not another process.
+    await new Promise(resolve => setTimeout(resolve, 100))
+    holder.send({ kind: 'release' })
+    settled = await Promise.all([holder.result, contender.result])
+  } finally {
+    holder.stop(); contender.stop()
+    await Promise.all([holder.result, contender.result])
+  }
+  for (const result of settled) if (result.status === 'rejected') throw result.reason
+  const results = settled.map(result => { assert.equal(result.status, 'fulfilled'); return result.value })
   assert.equal(results.filter(r => r.ok).length, 1)
+  const rejected = results.find(r => !r.ok)!
+  assert.deepEqual({ ok: rejected.ok, error: rejected.error, status: rejected.status }, { ok: false, error: 'InputError', status: 409 })
+  assert.ok(Number.isFinite(rejected.beginWaitMs) && rejected.beginWaitMs! >= 80, 'The contender must actually wait for the holder write lock.')
   assert.equal((await payload.findByID({ collection: 'products', id: p.id, depth: 0 })).stock, 0)
   assert.equal((await payload.count({ collection: 'orders', where: { 'items.product': { equals: p.id } } })).totalDocs, 1)
+})
+
+test('a barrier registered after its worker closes rejects instead of waiting forever', async () => {
+  const worker = checkoutWorker()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await worker.event('ready')
+    worker.stop()
+    await worker.result
+    const deadline = new Promise<void>((_, reject) => { timer = setTimeout(() => reject(new Error('Late worker event remained unresolved.')), 1000) })
+    await assert.rejects(Promise.race([worker.event('locked'), deadline]), /closed/)
+  } finally {
+    if (timer) clearTimeout(timer)
+    worker.stop(); await worker.result
+  }
 })
 
 // Next compiles configuration, instrumentation, RSC and route handlers into

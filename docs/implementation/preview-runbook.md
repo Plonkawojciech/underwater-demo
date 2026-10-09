@@ -8,7 +8,7 @@ Aplikacja Coolify: `qpf9uvw5p9hky4sn5vamun36`, identyfikator 15, branch `main`. 
 
 Nowa baza: `/data/preview/underwater-preview.db`. Media: `/data/preview/media`. Stare `/data/payload.db` i `/data/media` pozostają zachowane. Proces aplikacji działa jako UID 1000. Prywatne archiwa źródła są poza aplikacją, obrazem i katalogiem publicznym.
 
-Runtime wymaga `UNDERWATER_ENVIRONMENT=preview`, `UNDERWATER_DATA_ROOT=/data/preview`, odpowiednich `DATABASE_URI` i `MEDIA_DIR`, kanonicznych `UNDERWATER_ORIGIN`/`NEXT_PUBLIC_SERVER_URL`, `PAYLOAD_SECRET`, `UNDERWATER_PREVIEW_USER`, `UNDERWATER_PREVIEW_PASSWORD`, `UNDERWATER_ADMIN_EMAIL` oraz `UNDERWATER_PAYMENT_PROVIDER=test`. Wartości sekretów pozostają w Pęku kluczy i runtime Coolify; nie w repo, argumentach, logach ani plikach `.env`. Hasło administratora służy tylko do jednorazowego bootstrapu przez stdin.
+Runtime wymaga `UNDERWATER_ENVIRONMENT=preview`, `UNDERWATER_DATA_ROOT=/data/preview`, odpowiednich `DATABASE_URI` i `MEDIA_DIR`, kanonicznych `UNDERWATER_ORIGIN`/`NEXT_PUBLIC_SERVER_URL`, `PAYLOAD_SECRET`, `UNDERWATER_PREVIEW_USER`, `UNDERWATER_PREVIEW_PASSWORD`, `UNDERWATER_ADMIN_EMAIL` oraz `UNDERWATER_PAYMENT_PROVIDER=internal-test`. Wartości sekretów pozostają w Pęku kluczy i runtime Coolify; nie w repo, argumentach, logach ani plikach `.env`. Hasło administratora służy tylko do jednorazowego bootstrapu przez stdin. Test kontraktu wdrożenia wykonuje rzeczywisty helper konfiguracji z atrapą połączenia i potwierdza, że wskazuje istniejący adapter. Nieznany adapter jest odrzucany już przy starcie.
 
 ## Wdrożenie
 

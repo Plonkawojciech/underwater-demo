@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { paymentProviderID } from './commerce/payment-selection'
 
 export type AppEnvironment = 'preview' | 'test' | 'build'
 
@@ -10,6 +11,7 @@ export function validateEnvironment(env: Record<string, string | undefined>) {
   if (!env.PAYLOAD_SECRET || env.PAYLOAD_SECRET.length < 32) {
     throw new Error('A private PAYLOAD_SECRET of at least 32 characters is required.')
   }
+  paymentProviderID(env.UNDERWATER_PAYMENT_PROVIDER)
   if (!env.UNDERWATER_DATA_ROOT || !path.isAbsolute(env.UNDERWATER_DATA_ROOT)) {
     throw new Error('An absolute, dedicated UNDERWATER_DATA_ROOT is required.')
   }

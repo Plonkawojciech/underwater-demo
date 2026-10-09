@@ -61,8 +61,9 @@ def main():
         'PAYLOAD_SECRET': value('payload-secret'), 'UNDERWATER_PREVIEW_USER': 'wojtek-underwater',
         'UNDERWATER_PREVIEW_PASSWORD': value('basic-password'),
         'UNDERWATER_ADMIN_EMAIL': 'underwater-preview@programo.pl',
-        'UNDERWATER_PAYMENT_PROVIDER': 'test',
+        'UNDERWATER_PAYMENT_PROVIDER': 'internal-test',
     }
+    expected_keys = set(environment)
     value('admin-password')  # Bootstrap uses stdin in a separate operation; never a persistent container variable.
     command = 'docker exec -i coolify php -r ' + shlex.quote(PHP)
     completed = subprocess.run(['ssh', '-i', IDENTITY, '-o', 'BatchMode=yes', REMOTE, command], input=json.dumps(environment).encode(), capture_output=True)
@@ -71,7 +72,7 @@ def main():
         # Do not print provider traces that might interpolate secret input.
         raise RuntimeError('Own Coolify configuration failed; credentials were not printed.')
     report = json.loads(completed.stdout)
-    if report.get('configured') != APP_UUID: raise ValueError('Unexpected configuration target.')
+    if report.get('configured') != APP_UUID or report.get('runtimeOnly') is not True or set(report.get('keys', [])) != expected_keys: raise ValueError('Unexpected configuration target or result.')
     print(json.dumps(report))
 
 
