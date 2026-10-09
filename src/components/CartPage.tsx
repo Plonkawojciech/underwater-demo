@@ -90,6 +90,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
   const [payment, setPayment] = useState('')
   // Last accepted quote keeps the choices visible when a changed selection is refused.
   const [lastGood, setLastGood] = useState<Quote | null>(null)
+  const [initialQuoteSettled, setInitialQuoteSettled] = useState(false)
   const [retry, setRetry] = useState(0)
   const [q, setQ] = useState<QuoteState>({ status: 'idle' })
   const [sending, setSending] = useState(false)
@@ -122,10 +123,12 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
         const data = await res.json().catch(() => null)
         if (my !== seq.current) return
         const quote = data?.ok === true ? parseQuote(data.quote) : null
+        setInitialQuoteSettled(true)
         if (quote) { setQ({ status: 'ready', key: reqKey, quote }); setLastGood(quote) }
         else setQ({ status: 'error', key: reqKey, message: message(data?.message, 'Nie udało się przeliczyć koszyka.') })
       } catch {
         if (ctrl.signal.aborted || my !== seq.current) return
+        setInitialQuoteSettled(true)
         setQ({ status: 'error', key: reqKey, message: 'Brak połączenia ze sklepem. Sprawdź internet i spróbuj ponownie.' })
       }
     }, 250)
@@ -142,11 +145,14 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
   const meta = options ? checkoutMeta(options) : null
   const totals = shown ? checkoutMeta(shown) : null
   const chosen = quote ? checkoutMeta(quote) : null
+  // Keep the initial form out of the layout until its delivery/payment choices
+  // arrive. Later quotes retain the mounted form and the customer's typed data.
+  const initialQuotePending = !initialQuoteSettled && !options && (q.status === 'idle' || q.status === 'loading')
   const offline = !!chosen?.paymentMethods.find((p) => p.id === chosen.paymentMethod)?.offline
 
   if (done) {
     return (
-      <div className="section light"><div className="wrap">
+      <div className="section light cart-shell"><div className="wrap">
         <div className="done big" role="status">
           <h1 className="h2">Zamówienie testowe {done.number} zapisane</h1>
           {done.path
@@ -156,10 +162,10 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
       </div></div>
     )
   }
-  if (!ready) return <div className="section light" aria-busy="true"><div className="wrap"><h1 className="h2">Koszyk</h1></div></div>
+  if (!ready) return <div className="section light cart-shell" aria-busy="true"><div className="wrap"><h1 className="h2">Koszyk</h1></div></div>
   if (!lines.length) {
     return (
-      <div className="section light"><div className="wrap">
+      <div className="section light cart-shell"><div className="wrap">
         <h1 className="h2">Koszyk</h1>
         <p className="lead">Koszyk jest pusty.</p>
         <div className="hero-cta"><Link className="btn btn-solid" href="/sklep-nurkowy.html">Przejdź do sklepu</Link></div>
@@ -216,7 +222,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
   }
 
   return (
-    <div className="section light"><div className="wrap cart">
+    <div className="section light cart-shell"><div className="wrap cart">
       <div>
         <h1 className="h2">Koszyk</h1>
         {!persisted ? <Notice tone="info">Ta przeglądarka nie zapisuje koszyka. Po zamknięciu karty jego zawartość zniknie.</Notice> : null}
@@ -265,7 +271,9 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
         {mismatch ? <Notice tone="warning" live>Koszyk różni się od tego, co sklep może przyjąć. Popraw zaznaczone pozycje.</Notice> : null}
       </div>
 
-      <form onSubmit={onSubmit} className="form checkout" aria-describedby={`${uid}-test`}>
+      {initialQuotePending ? (
+        <div className="checkout" aria-busy="true" role="status">Przeliczanie koszyka i dostępnych sposobów dostawy…</div>
+      ) : <form onSubmit={onSubmit} className="form checkout" aria-describedby={`${uid}-test`}>
         <div id={`${uid}-test`}>
           <Notice tone="warning" title="Zamówienie testowe">
             To sklep w wersji podglądowej. Zamówienie zostanie zapisane jako testowe, płatność jest symulowana. Nic nie zostanie pobrane ani wysłane.
@@ -330,7 +338,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
           {sending ? 'Zapisywanie zamówienia…' : 'Złóż zamówienie testowe'}
         </button>
         {!quote ? <p id={`${uid}-wait`} className="note note-first">Przycisk będzie aktywny po przeliczeniu koszyka przez sklep.</p> : null}
-      </form>
+      </form>}
     </div></div>
   )
 }

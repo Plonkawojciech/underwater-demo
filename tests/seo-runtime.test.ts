@@ -36,6 +36,18 @@ test.after(async () => {
 
 const fixedPaths = () => Object.fromEntries(Object.entries(meta.FIXED_META).map(([key, value]) => [key, value.path])) as Parameters<typeof sitemapPaths>[1]
 
+test('actual metadata builder preserves safe pagination and never emits token/private canonical URLs', () => {
+  const safe = meta.pageMeta({ title: 'TEST List', path: '/sklep-nurkowy.html?strona=2' })
+  assert.equal(safe.alternates?.canonical, '/sklep-nurkowy.html?strona=2')
+  assert.equal(safe.openGraph?.url, '/sklep-nurkowy.html?strona=2')
+  for (const path of ['/kontakt.html?token=TEST', '/%61dmin', '/api/orders', '/a/%2e%2e/x']) {
+    const metadata = meta.pageMeta({ title: 'TEST private path', path })
+    assert.equal(metadata.alternates, undefined, path)
+    assert.equal(metadata.openGraph?.url, undefined, path)
+  }
+  assert.deepEqual(safe.robots, { index: false, follow: false })
+})
+
 test('actual Payload public route and sitemap pick the same first published event when paths collide', async () => {
   await payload.create({ collection: 'events', data: { title: 'TEST hidden collision', startsAt: '2099-01-01T10:00:00.000Z', path: 'test-shared-event', published: false } })
   const first = await payload.create({ collection: 'events', data: { title: 'TEST first collision', startsAt: '2099-01-01T10:00:00.000Z', path: 'test-shared-event', published: true } })

@@ -129,7 +129,9 @@ test('stock: null stays unknown (enquiry, no sold-out wording), zero is out, onl
   assert.match(STOCK_LABEL.out, /niedostępny/)
   // Structured data: no availability is published for unknown stock.
   const p: ProductDoc = { id: 1, name: 'M', slug: 'm', priceCents: 100, variants: [{ label: 'S', stock: 0 }, { label: 'L', stock: null }] }
-  assert.equal((productSchema(p, 'u', 'o') as Record<string, any>).offers.availability, undefined)
+  const offers = (productSchema(p, 'https://example.test/m.html', 'https://example.test') as Record<string, any>).offers
+  assert.equal(offers[0].availability, 'https://schema.org/OutOfStock')
+  assert.equal(offers[1].availability, undefined)
 })
 
 test('formatMoney uses Polish formatting from grosze', () => {
@@ -248,8 +250,12 @@ test('productSchema: catalogue fields only, no ratings, availability only when s
   assert.equal(a.aggregateRating, undefined)
   assert.equal(a.review, undefined)
   const b = productSchema({ ...base, variants: [{ label: 'S', priceCents: 10000, stock: 0 }, { label: 'L', priceCents: 15000, stock: 0 }] }, 'u', 'o') as Record<string, any>
-  assert.equal(b.offers['@type'], 'AggregateOffer')
-  assert.equal(b.offers.availability, 'https://schema.org/OutOfStock')
+  assert.equal(b.offers.length, 2)
+  assert.deepEqual(b.offers.map((offer: any) => [offer['@type'], offer.name, offer.price, offer.availability]), [
+    ['Offer', 'S', '100.00', 'https://schema.org/OutOfStock'],
+    ['Offer', 'L', '150.00', 'https://schema.org/OutOfStock'],
+  ])
+  assert.equal('lowPrice' in b.offers, false)
   const c = productSchema({ ...base, priceCents: null, price: null }, 'u', 'o') as Record<string, any>
   assert.equal(c.offers, undefined)
 })

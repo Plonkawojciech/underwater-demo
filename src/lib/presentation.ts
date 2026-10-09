@@ -774,24 +774,37 @@ export function jsonLd(value: unknown): string {
     .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
 }
 
-/** schema.org Product from catalogue fields only: no ratings, no invented availability. */
+/** schema.org Product from visible catalogue facts. Variant choices are distinct Offers, never AggregateOffer. */
 export function productSchema(p: ProductDoc, url: string, origin: string) {
-  const abs = (u: string) => (u.startsWith('/') ? origin + u : u)
-  const images = (p.images || []).map((m) => mediaUrl(m, 'full')).filter(Boolean).map(abs)
-  const span = priceSpan(p)
-  const stock = knownStock(p)
-  const availability = stock === null ? undefined : stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock'
+  const images = [...new Set((p.images || []).flatMap((media) => {
+    const path = mediaUrl(media, 'full')
+    if (!path) return []
+    try {
+      const image = new URL(path, origin)
+      return ['https:', 'http:'].includes(image.protocol) && !image.username && !image.password ? [image.href] : []
+    } catch { return [] }
+  }))]
   const money = (c: number) => (c / 100).toFixed(2)
-  const offers = !span ? undefined : span.min === span.max
-    ? { '@type': 'Offer', url, priceCurrency: 'PLN', price: money(span.min), ...(availability ? { availability } : {}) }
-    : { '@type': 'AggregateOffer', url, priceCurrency: 'PLN', lowPrice: money(span.min), highPrice: money(span.max), offerCount: p.variants?.length, ...(availability ? { availability } : {}) }
+  const offer = (price: number, stock: number | null, name?: string) => ({
+    '@type': 'Offer', url, priceCurrency: 'PLN', price: money(price),
+    ...(name ? { name } : {}),
+    ...(stock === null ? {} : { availability: stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock' }),
+  })
+  const variants = (p.variants || []).flatMap((variant) => {
+    const price = variantPrice(p, variant).current
+    return price === null ? [] : [offer(price, knownStock({ stock: variant.stock }), variant.label?.trim())]
+  })
+  const price = productPrice(p).current
+  const offers = p.variants?.length ? variants.length ? variants : undefined
+    : price === null ? undefined : offer(price, knownStock(p))
+  const description = excerpt(plainText(p.short || p.body || ''), 1000)
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: p.name,
     url,
     ...(images.length ? { image: images } : {}),
-    ...(p.short ? { description: p.short } : {}),
+    ...(description ? { description } : {}),
     ...(p.sku ? { sku: p.sku } : {}),
     ...(p.manufacturer ? { brand: { '@type': 'Brand', name: p.manufacturer } } : {}),
     ...(offers ? { offers } : {}),

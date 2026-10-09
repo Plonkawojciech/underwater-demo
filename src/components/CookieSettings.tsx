@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
-import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { CONSENT_KEY, parseConsent, serializeConsent, type Consent } from '@/lib/presentation'
 import { CONSENT_CHANGED_EVENT, consentDecision } from '@/lib/analytics'
@@ -14,16 +13,17 @@ export function CookieSettings({ preview, privacyHref }: { preview: boolean; pri
   const dialog = useRef<HTMLDialogElement>(null)
   const opener = useRef<HTMLButtonElement>(null)
   const activeOpener = useRef<HTMLButtonElement | null>(null)
+  const banner = useRef<HTMLElement>(null)
   const uid = useId()
   const [consent, setConsent] = useState<Consent>({ analytics: false })
   const [draft, setDraft] = useState(false)
   const [saved, setSaved] = useState('')
-  const [firstVisit, setFirstVisit] = useState(false)
+  // A fixed server-rendered notice paints without waiting for JavaScript.
+  // Hydration reads the saved decision and removes it for returning visitors.
+  const [firstVisit, setFirstVisit] = useState(true)
   const [bannerStatus, setBannerStatus] = useState('')
-  const [bannerContainer, setBannerContainer] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
-    setBannerContainer(document.getElementById('privacy-notice'))
     const refresh = () => {
       try {
         const raw = localStorage.getItem(CONSENT_KEY)
@@ -36,6 +36,50 @@ export function CookieSettings({ preview, privacyHref }: { preview: boolean; pri
     window.addEventListener('storage', stored)
     return () => window.removeEventListener('storage', stored)
   }, [])
+
+  useEffect(() => {
+    const notice = banner.current
+    if (!firstVisit || !notice) return
+    const root = document.documentElement
+    // The notice is fixed so hydration never moves the main content. Its actual
+    // height becomes a scroll inset, keeping focused controls and the footer clear.
+    let pointerFocus = false
+    const pointed = () => { pointerFocus = true }
+    const keyed = () => { pointerFocus = false }
+    const reveal = (onlyOnScreen: boolean) => {
+      const active = document.activeElement
+      if (!(active instanceof HTMLElement) || active === document.body || active.tabIndex < 0 || !active.matches(':focus-visible') || pointerFocus) return
+      if (notice.contains(active) || active.closest('dialog[open], .head')) return
+      const bounds = active.getBoundingClientRect()
+      // Resizing must not pull the reader back to a control they scrolled away from.
+      if (onlyOnScreen && (bounds.bottom <= 0 || bounds.top >= window.innerHeight)) return
+      const header = document.querySelector('.head')
+      const sticky = header && ['sticky', 'fixed'].includes(getComputedStyle(header).position)
+      const top = sticky ? Math.max(0, header.getBoundingClientRect().bottom) : 0
+      if (bounds.bottom > notice.getBoundingClientRect().top - 12 || bounds.top < top + 12) active.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
+    }
+    const focused = () => reveal(false)
+    const resize = () => {
+      const gap = parseFloat(getComputedStyle(notice).bottom) || 0
+      root.style.setProperty('--privacy-notice-height', `${Math.ceil(notice.getBoundingClientRect().height + 2 * gap)}px`)
+      root.setAttribute('data-privacy-notice', 'open')
+      reveal(true)
+    }
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(notice)
+    document.addEventListener('focusin', focused)
+    document.addEventListener('pointerdown', pointed, { capture: true, passive: true })
+    document.addEventListener('keydown', keyed, true)
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('focusin', focused)
+      document.removeEventListener('pointerdown', pointed, true)
+      document.removeEventListener('keydown', keyed, true)
+      root.style.removeProperty('--privacy-notice-height')
+      root.removeAttribute('data-privacy-notice')
+    }
+  }, [firstVisit])
 
   const open = (event: MouseEvent<HTMLButtonElement>) => {
     activeOpener.current = event.currentTarget
@@ -65,12 +109,12 @@ export function CookieSettings({ preview, privacyHref }: { preview: boolean; pri
   return (
     <>
       <button ref={opener} type="button" className="linkbtn" onClick={open}>Ustawienia prywatności</button>
-      {firstVisit && bannerContainer ? createPortal((
-        <section className="privacy-banner" role="region" aria-label="Prywatność i ustawienia pomiaru">
+      {firstVisit ? (
+        <section ref={banner} className="privacy-banner" role="region" aria-label="Prywatność i ustawienia pomiaru">
           <div className="privacy-banner-in">
             <div className="privacy-banner-text">
               <h2 className="h3">Twoja prywatność</h2>
-              <p>Koszyk i wybór ustawień zapisujemy w pamięci tej przeglądarki; panel używa niezbędnej sesji.{preview ? ' Pomiar w podglądzie jest wyłącznie testem w tej karcie i nie wysyła danych do usług zewnętrznych.' : ' Opcjonalny pomiar wymaga Twojej zgody.'}</p>
+              <p>Koszyk i ustawienia zapisujemy w tej przeglądarce. Opcjonalny pomiar jest wyłączony.{preview ? ' W podglądzie zgoda uruchamia tylko test w tej karcie, bez wysyłania danych.' : ' Możesz go włączyć lub zmienić wybór w ustawieniach.'}</p>
               {privacyHref ? <p><Link href={privacyHref} className="textlink">Polityka prywatności</Link></p> : null}
             </div>
             <div className="privacy-banner-actions">
@@ -80,7 +124,7 @@ export function CookieSettings({ preview, privacyHref }: { preview: boolean; pri
             </div>
           </div>
         </section>
-      ), bannerContainer) : null}
+      ) : null}
       <span className="sr-only privacy-banner-status" role="status">{bannerStatus}</span>
       <dialog
         ref={dialog}

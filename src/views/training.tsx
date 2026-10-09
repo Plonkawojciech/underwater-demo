@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { MediaImage } from '@/components/MediaImage'
 import type { Where } from 'payload'
 import {
   asObject, centsOf, COURSE_LEVEL, courseHref, formatMoney, jsonLd, mediaAlt, mediaUrl, seatsLeft, withQuery,
@@ -111,7 +112,6 @@ export async function CoursePage({ course: c }: { course: CourseDoc }) {
   ])
   const next = sessions[0]
   const price = coursePrice(c, next)
-  const hero = mediaUrl(c.image, 'card') || '/img/kurs.jpg'
   const gallery = (c.gallery || []).filter((g) => asObject(g))
   const hasBody = !!c.body?.trim()
   const hasSections = !!c.sections?.length
@@ -120,7 +120,7 @@ export async function CoursePage({ course: c }: { course: CourseDoc }) {
     <>
       {schema ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(schema) }} /> : null}
       <section className="chero">
-        <img src={hero} alt="" />
+        <MediaImage media={c.image} fallback="/img/kurs.jpg" alt="" sizes="100vw" eager />
         <div className="wrap">
           <Crumbs items={[{ label: 'Kursy nurkowania', href: COURSES }, { label: c.name }]} />
           {(c.org || c.level) && <p className="kicker">{[c.org, c.level ? COURSE_LEVEL[c.level] : null].filter(Boolean).join(', ')}</p>}

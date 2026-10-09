@@ -6,7 +6,7 @@ import { clearOnDuplicate, importerOnly } from './fields'
 export const Media: CollectionConfig = {
   slug: 'media',
   labels: { singular: 'Plik', plural: 'Media' },
-  admin: { group: 'System' },
+  admin: { group: 'Treści', useAsTitle: 'alt', defaultColumns: ['filename', 'alt', 'updatedAt'], description: 'Zdjęcia do produktów, kursów i wpisów. Dodaj JPEG, PNG, WebP, GIF lub AVIF do 12 MB, a następnie wybierz plik w edytowanej treści.' },
   access: { read: () => true, create: contentEditor, update: contentEditor, delete: adminOnly },
   hooks: { beforeOperation: [verifyImageUpload] },
   upload: {
@@ -18,7 +18,7 @@ export const Media: CollectionConfig = {
     mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
   },
   fields: [
-    { name: 'alt', label: 'Opis (alt)', type: 'text' },
+    { name: 'alt', label: 'Opis zdjęcia (alt)', type: 'text', admin: { description: 'Opisz, co widać, np. „Maska Sopras Corona, kolor czarny”. Opis pomaga osobom korzystającym z czytnika ekranu; nie wpisuj samej nazwy pliku.' } },
     // Provenance: written only by the importer and seed through the local API (see ./fields).
     { name: 'legacyKey', type: 'text', unique: true, index: true, access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true } },
     { name: 'sourceHash', type: 'text', index: true, access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true } },

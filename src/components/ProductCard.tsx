@@ -1,8 +1,10 @@
 import Link from 'next/link'
-import { formatMoney, knownStock, mediaUrl, priceSpan, productHref, productPrice, STOCK_LABEL, stockState, type ProductDoc } from '@/lib/presentation'
+import { formatMoney, knownStock, priceSpan, productHref, productPrice, STOCK_LABEL, stockState, type ProductDoc } from '@/lib/presentation'
+import { mediaImageProps } from './MediaImage'
 
-export function ProductCard({ p }: { p: ProductDoc }) {
-  const src = mediaUrl(p.images?.[0], 'thumb')
+export function ProductCard({ p, eager = false }: { p: ProductDoc; eager?: boolean }) {
+  const image = mediaImageProps(p.images?.[0], 'thumb')
+  const src = image.src
   const price = productPrice(p)
   const span = priceSpan(p)
   // Variants with their own prices: show the range start instead of the base price.
@@ -15,7 +17,7 @@ export function ProductCard({ p }: { p: ProductDoc }) {
       <span className="ph">
         {price.sale !== null && !ranged ? <span className="flag">Promocja</span> : null}
         {/* The product name follows as text, so the image is decorative inside the link. */}
-        {src ? <img src={src} alt="" loading="lazy" decoding="async" /> : <span className="ph-none" aria-hidden="true">Brak zdjęcia</span>}
+        {src ? <img {...image} alt="" sizes={image.srcSet ? '(max-width: 599px) calc(100vw - 80px), (max-width: 959px) 40vw, 260px' : undefined} loading={eager ? 'eager' : 'lazy'} fetchPriority={eager ? 'high' : undefined} decoding="async" /> : <span className="ph-none" aria-hidden="true">Brak zdjęcia</span>}
       </span>
       <span className="cb">
         {p.manufacturer ? <span className="maker">{p.manufacturer}</span> : null}

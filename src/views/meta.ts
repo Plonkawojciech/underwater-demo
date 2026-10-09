@@ -5,16 +5,17 @@ import {
 } from '@/lib/presentation'
 import type { FixedRoute, Resolved } from '@/lib/source-routes'
 import { isPreview } from './query'
+import { FIXED_SEO_PATHS, publicSeoCanonical } from '@/lib/seo'
 
 export const FIXED_META: Record<FixedRoute, { title: string; description?: string; path: string }> = {
-  shop: { title: 'Sklep nurkowy', path: '/sklep-nurkowy.html' },
-  courses: { title: 'Kursy nurkowania', path: '/kursy-nurkowania/kursy-nurkowania-padi-warszawa.html' },
-  contact: { title: 'Kontakt', path: '/kontakt.html' },
-  trips: { title: 'Wyprawy nurkowe', path: '/wyprawy-nurkowe.html' },
-  calendar: { title: 'Kalendarz', path: '/kalendarz.html' },
-  news: { title: 'Aktualności', path: '/aktualnosci.html' },
-  reports: { title: 'Relacje', path: '/relacje-z-wypraw.html' },
-  albums: { title: 'Galerie', path: '/galeria.html' },
+  shop: { title: 'Sklep nurkowy', path: FIXED_SEO_PATHS.shop },
+  courses: { title: 'Kursy nurkowania', path: FIXED_SEO_PATHS.courses },
+  contact: { title: 'Kontakt', path: FIXED_SEO_PATHS.contact },
+  trips: { title: 'Wyprawy nurkowe', path: FIXED_SEO_PATHS.trips },
+  calendar: { title: 'Kalendarz', path: FIXED_SEO_PATHS.calendar },
+  news: { title: 'Aktualności', path: FIXED_SEO_PATHS.news },
+  reports: { title: 'Relacje', path: FIXED_SEO_PATHS.reports },
+  albums: { title: 'Galerie', path: FIXED_SEO_PATHS.albums },
 }
 
 const robots = () => (isPreview() ? { index: false, follow: false } : undefined)
@@ -28,12 +29,13 @@ export function pageMeta({ title, description, path, image, seo }: {
 }): Metadata {
   const desc = excerpt(seo?.description || description || '', 160) || undefined
   const img = mediaUrl(seo?.image ?? image, 'card')
+  const canonical = publicSeoCanonical(path)
   return {
     // A stored SEO title is the source's full <title>, which already names the site.
     title: seo?.title ? { absolute: seo.title } : title,
     description: desc,
-    ...(path ? { alternates: { canonical: path } } : {}),
-    openGraph: { title: seo?.title || title, description: desc, ...(path ? { url: path } : {}), ...(img ? { images: [img] } : {}) },
+    ...(canonical ? { alternates: { canonical } } : {}),
+    openGraph: { title: seo?.title || title, description: desc, ...(canonical ? { url: canonical } : {}), ...(img ? { images: [img] } : {}) },
     robots: robots(),
   }
 }

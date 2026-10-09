@@ -6,11 +6,11 @@ export const validateCatalog: CollectionBeforeValidateHook = ({ data, originalDo
   try {
     const trusted = ['order-service', 'reservation-service', 'payment-service', 'import-service', 'operations-service'].includes(String(req.context.systemAction || ''))
     if (!trusted && operation === 'update') {
-      if (data.stock !== undefined && data.stock !== originalDoc?.stock) throw new APIError('Stan magazynu zmienił się. Odśwież produkt; korekty wykonuj w obsłudze magazynu.', 409)
+      if (data.stock !== undefined && data.stock !== originalDoc?.stock) throw new APIError('Stan magazynu zmienił się. Odśwież produkt; korekty wykonuj w obsłudze magazynu.', 409, { code: 'inventory-conflict' })
       for (const variant of data.variants || []) {
         const old = originalDoc?.variants?.find((item: { id?: string }) => item.id === variant.id)
-        if (old && variant.stock !== old.stock) throw new APIError('Stan wariantu zmienił się. Odśwież produkt.', 409)
-        if (!old && variant.stock != null && variant.stock !== 0) throw new APIError('Nowy wariant wymaga osobnego potwierdzenia stanu.', 409)
+        if (old && variant.stock !== old.stock) throw new APIError('Stan wariantu zmienił się. Odśwież produkt.', 409, { code: 'inventory-conflict' })
+        if (!old && variant.stock != null && variant.stock !== 0) throw new APIError('Nowy wariant wymaga osobnego potwierdzenia stanu.', 409, { code: 'inventory-conflict' })
       }
     }
     if (data.price !== undefined && data.price !== originalDoc?.price) {

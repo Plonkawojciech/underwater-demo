@@ -2,15 +2,17 @@ import Link from 'next/link'
 import { cache } from 'react'
 import type { Where } from 'payload'
 import {
-  asObject, categoryHref, categoryTree, listingCategoryId, listingIds, listingView, mediaAlt, mediaUrl, productPrice, productSchema, variantPrice, withQuery,
+  asObject, categoryHref, categoryTree, listingCategoryId, listingIds, listingView, mediaAlt, mediaUrl, productPrice, variantPrice, withQuery,
   type CategoryDoc, type PageDoc, type ProductDoc, type TreeNode,
 } from '@/lib/presentation'
 import { ProductCard } from '@/components/ProductCard'
+import { mediaImageProps } from '@/components/MediaImage'
 import { AddToCart, Gallery, ProductProvider } from '@/components/AddToCart'
 import { Crumbs, EmptyState, JsonLd, Pagination, RangeSummary, RichBody, TableScroll, type Crumb } from '@/components/content'
 import { getSettings, PAGE_SIZE, publicFind, siteOrigin } from './query'
 import { hrefOf } from './meta'
 import { catalogSearchText } from '@/lib/catalog-search'
+import { catalogueProductSchema } from '@/lib/seo'
 
 const SHOP = '/sklep-nurkowy.html'
 
@@ -85,7 +87,7 @@ function ProductGrid({ docs, page, totalPages, totalDocs, hrefFor, empty }: {
   return (
     <>
       <RangeSummary page={page} perPage={PAGE_SIZE} total={totalDocs} />
-      <div className="grid">{docs.map((p) => <ProductCard key={p.id} p={p} />)}</div>
+      <div className="grid">{docs.map((p, index) => <ProductCard key={p.id} p={p} eager={index === 0} />)}</div>
       <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} label="Strony katalogu" />
     </>
   )
@@ -234,8 +236,7 @@ export async function ProductPage({ product: p }: { product: ProductDoc }) {
   const variants = (p.variants || []).map((v) => ({
     id: v.id, sku: v.sku, label: v.label, stock: v.stock, image: mediaUrl(v.image, 'card') || undefined, price: variantPrice(p, v),
   }))
-  const url = hrefOf({ kind: 'product', doc: p }) || `/${p.slug}.html`
-  const origin = siteOrigin()
+  const schema = catalogueProductSchema(p, siteOrigin())
   return (
     <div className="section light"><div className="wrap">
       <Crumbs items={[
@@ -244,7 +245,7 @@ export async function ProductPage({ product: p }: { product: ProductDoc }) {
         { label: p.name },
       ]} />
       <ProductProvider><div className="product">
-        <Gallery images={imgs.map((i) => ({ url: mediaUrl(i, 'card'), thumb: mediaUrl(i, 'thumb'), alt: mediaAlt(i) || p.name }))} />
+        <Gallery images={imgs.map((i) => ({ ...mediaImageProps(i), url: mediaUrl(i, 'card'), thumb: mediaUrl(i, 'thumb'), alt: mediaAlt(i) || p.name }))} />
         <div>
           <h1 className="h2">{p.name}</h1>
           {(p.manufacturer || p.sku || p.warranty) && (
@@ -280,7 +281,7 @@ export async function ProductPage({ product: p }: { product: ProductDoc }) {
           <div className="grid">{related.docs.map((r) => <ProductCard key={r.id} p={r} />)}</div>
         </section>
       )}
-      {origin ? <JsonLd data={productSchema(p, origin + url, origin)} /> : null}
+      {schema ? <JsonLd data={schema} /> : null}
     </div></div>
   )
 }

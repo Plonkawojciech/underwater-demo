@@ -52,7 +52,15 @@ export function Header({ nav = DEFAULT_NAV, phone }: { nav?: NavItem[]; phone?: 
   const cartLabel = hasCount ? `Koszyk, ${count} szt.` : 'Koszyk'
 
   return (
-    <header className={'head' + (open ? ' head-open' : '')}>
+    <header
+      className={'head' + (open ? ' head-open' : '')}
+      onBlur={(event) => {
+        // This is a navigation disclosure, not a modal. When Tab leaves the header,
+        // remove the drawer so it cannot cover the newly focused page control.
+        const next = event.relatedTarget
+        if (open && next && !event.currentTarget.contains(next)) setOpen(false)
+      }}
+    >
       <a href="#tresc" className="skip" onClick={focusMain}>Przejdź do treści</a>
       <div className="wrap">
         <Link href="/" className="brand" aria-label="Underwater.pl, strona główna">

@@ -1,0 +1,57 @@
+name: Underwater isolated regression
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: underwater-regression-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      PAYLOAD_SECRET: synthetic-ci-build-placeholder-never-a-runtime-secret
+      UNDERWATER_ENVIRONMENT: build
+      UNDERWATER_DATA_ROOT: /tmp/underwater-build
+      DATABASE_URI: file:/tmp/underwater-build/underwater-build.db
+      MEDIA_DIR: /tmp/underwater-build/media
+      NEXT_PUBLIC_SERVER_URL: http://localhost:3013
+      UNDERWATER_ORIGIN: http://localhost:3013
+      UNDERWATER_PAYMENT_PROVIDER: internal-test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: pnpm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - run: python -m pip install --disable-pip-version-check cryptography==47.0.0 pypdf==6.12.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps --no-shell chromium
+      - run: mkdir -p /tmp/underwater-build/media
+      - run: pnpm run typecheck
+      - run: pnpm test
+        env:
+          NODE_ENV: production
+      - run: pnpm run build
+      - run: pnpm exec playwright test
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: synthetic-e2e-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7

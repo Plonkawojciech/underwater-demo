@@ -199,6 +199,31 @@ test('an outdated catalog edit cannot restore stock consumed by checkout', async
   await payload.update({ collection: 'products', id: p.id, data: { short: 'Poprawiony opis' } })
   assert.equal((await payload.findByID({ collection: 'products', id: p.id })).stock, 1)
 })
+test('an outdated course session edit cannot overwrite a signup reservation', async () => {
+  const staff = await payload.create({ collection: 'users', context: { systemAction: 'bootstrap-admin' }, data: { email: 'stale-session-editor@example.invalid', password: 'synthetic-editor-password-for-tests-only', role: 'editor' } })
+  const course = await payload.create({ collection: 'courses', data: { name: 'TEST stale session', slug: 'test-stale-session', published: true } })
+  const session = await payload.create({ collection: 'course-sessions', data: { title: 'TEST stale session', course: course.id, startsAt: '2099-01-01T12:00:00.000Z', capacity: 8, reserved: 0, published: true } })
+  const stale = await payload.findByID({ collection: 'course-sessions', id: session.id, depth: 0 })
+  assert.equal(stale.reserved, 0)
+
+  await signup(payload, { name: 'TEST', email: 'stale-session-signup@example.invalid', phone: '000000000', privacyAccepted: true, course: course.id, session: session.id })
+  assert.equal((await payload.findByID({ collection: 'course-sessions', id: session.id, depth: 0 })).reserved, 1)
+
+  const title = 'TEST updated session title'
+  await assert.rejects(payload.update({ collection: 'course-sessions', id: session.id, user: staff, overrideAccess: false, data: { title, reserved: stale.reserved } }), (error: any) => {
+    assert.equal(error.status, 403)
+    assert.match(error.message, /Rezerwacje zmienia/)
+    return true
+  })
+  const rejected = await payload.findByID({ collection: 'course-sessions', id: session.id, depth: 0 })
+  assert.equal(rejected.title, stale.title)
+  assert.equal(rejected.reserved, 1)
+
+  await payload.update({ collection: 'course-sessions', id: session.id, user: staff, overrideAccess: false, data: { title } })
+  const updated = await payload.findByID({ collection: 'course-sessions', id: session.id, depth: 0 })
+  assert.equal(updated.title, title)
+  assert.equal(updated.reserved, 1)
+})
 test('private records cannot be read or forged through unprivileged local API', async () => {
   for (const collection of ['orders', 'signups', 'contacts', 'newsletter', 'payment-attempts', 'payment-events', 'outbox'] as const) await assert.rejects(payload.find({ collection, overrideAccess: false }), /not allowed|Forbidden|permissions|dostęp/i)
   await assert.rejects(payload.create({ collection: 'orders', overrideAccess: true, data: { number: 'FORGED', customerName: 'X', email: 'test@example.invalid', total: 0, privacyAccepted: true, termsAccepted: true } }), /zweryfikowanego/)

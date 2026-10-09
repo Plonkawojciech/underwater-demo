@@ -1,5 +1,60 @@
 /* Keep Payload's navigation usable when the breadcrumb contains an order UUID.
  * The overflowing metadata strip remains scrollable within its own container. */
+.underwater-field-help {
+  color: var(--theme-elevation-700);
+  margin-top: 0;
+}
+
+.underwater-field-error {
+  color: var(--theme-error-500);
+}
+
+.underwater-body-tools {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+
+  details {
+    flex: 1;
+    min-width: 180px;
+  }
+
+  summary {
+    cursor: pointer;
+    padding: 6px 0;
+  }
+
+  button {
+    padding: 6px 10px;
+    border: 1px solid var(--theme-elevation-250);
+    border-radius: 3px;
+    color: var(--theme-text);
+    background: var(--theme-elevation-50);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  summary:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--theme-text);
+    outline-offset: 3px;
+  }
+}
+
+.underwater-body-preview {
+  margin-top: 8px;
+  padding: 8px 16px;
+  border: 1px solid var(--theme-elevation-150);
+  overflow-wrap: anywhere;
+  white-space: normal;
+
+  p {
+    margin: 8px 0;
+  }
+}
+
 @media (max-width: 767px) {
   .app-header__controls-wrapper,
   .app-header__step-nav-wrapper,

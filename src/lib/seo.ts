@@ -1,7 +1,7 @@
 import type { Where } from 'payload'
 import {
   canonicalPath, categoryHref, contentHref, courseHref, excerpt, mediaUrl, normalizeSegments,
-  plainText, productHref, type CourseDoc,
+  plainText, productHref, productSchema, phoneParts, safeExternalUrl, type CourseDoc, type ProductDoc, type SettingsDoc,
 } from './presentation'
 import { APP_ROUTES, FIXED, isAppRoute, resolveSourceRoute, type FixedRoute, type RouteCollection, type RouteFinder } from './source-routes'
 
@@ -9,6 +9,11 @@ import { APP_ROUTES, FIXED, isAppRoute, resolveSourceRoute, type FixedRoute, typ
 export type SitemapDocument = { id: number; published?: boolean | null; legacyPath?: string | null; slug?: string | null; path?: string | null }
 export type SitemapRecords = Partial<Record<Exclude<RouteCollection, 'redirects'>, SitemapDocument[]>>
 export const SITEMAP_COLLECTIONS = ['products', 'categories', 'courses', 'pages', 'trips', 'albums', 'events'] as const
+export const FIXED_SEO_PATHS: Record<FixedRoute, string> = {
+  shop: '/sklep-nurkowy.html', courses: '/kursy-nurkowania/kursy-nurkowania-padi-warszawa.html',
+  contact: '/kontakt.html', trips: '/wyprawy-nurkowe.html', calendar: '/kalendarz.html',
+  news: '/aktualnosci.html', reports: '/relacje-z-wypraw.html', albums: '/galeria.html',
+}
 
 function originOf(value: string): string | null {
   try {
@@ -38,6 +43,19 @@ export function seoUrl(path: string | null | undefined, origin: string): string 
   try { return new URL(safePath, safeOrigin).href } catch { return null }
 }
 
+/** Only pagination changes the canonical query; search, tracking and tokens never enter it. */
+export function publicSeoCanonical(value: string | null | undefined): string | null {
+  if (!value) return null
+  const [path, query, extra] = value.split('?')
+  const safe = publicSeoPath(path)
+  if (!safe || extra !== undefined) return null
+  if (query === undefined) return safe
+  if (!/^strona=[1-9]\d{0,3}$/.test(query)) return null
+  const page = Number(query.slice(7))
+  if (page > 1000) return null
+  return page === 1 ? safe : `${safe}?strona=${page}`
+}
+
 const KIND_COLLECTION = { product: 'products', category: 'categories', course: 'courses', page: 'pages', trip: 'trips', album: 'albums', event: 'events' } as const
 
 function documentPath(collection: (typeof SITEMAP_COLLECTIONS)[number], doc: SitemapDocument): string | null {
@@ -49,7 +67,7 @@ function documentPath(collection: (typeof SITEMAP_COLLECTIONS)[number], doc: Sit
 }
 
 /** Indexed lookups implement the resolver's exact equals/in queries; no HTTP probes or N+1 DB reads. */
-function sitemapFinder(records: SitemapRecords): RouteFinder {
+export function sitemapFinder(records: SitemapRecords): RouteFinder {
   const indexes = new Map<string, Map<string, SitemapDocument[]>>()
   for (const collection of SITEMAP_COLLECTIONS) {
     for (const doc of records[collection] || []) {
@@ -80,6 +98,36 @@ function sitemapFinder(records: SitemapRecords): RouteFinder {
     const doc = matches.sort((a, b) => a.id - b.id)[0]
     return (doc || null) as T | null
   }
+}
+
+/** Publicly displayed brand and contact details; no inferred legal entity, location or logo. */
+export function organizationSchema(settings: SettingsDoc, origin: string) {
+  const url = originOf(origin)
+  if (!url) return null
+  const telephone = phoneParts(settings.phone).flatMap((part) => part.href ? [part.href.slice(4)] : [])
+  const email = settings.email?.trim()
+  const address = settings.address?.trim()
+  const sameAs = [...new Set([settings.facebook, settings.youtube].flatMap((value) => {
+    const safe = safeExternalUrl(value)
+    if (!safe) return []
+    const social = new URL(safe)
+    return social.protocol === 'https:' && !social.username && !social.password && !social.search && !social.hash ? [safe] : []
+  }))]
+  return {
+    '@context': 'https://schema.org', '@type': 'Organization', '@id': `${url}/#organization`,
+    name: 'Underwater.pl', url,
+    ...(telephone.length ? { telephone: [...new Set(telephone)] } : {}),
+    ...(email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? { email } : {}),
+    ...(address ? { address } : {}),
+    ...(sameAs.length ? { sameAs } : {}),
+  }
+}
+
+/** Runtime Product schema uses the same safe canonical path and configured origin as metadata/sitemap. */
+export function catalogueProductSchema(product: ProductDoc, origin: string) {
+  const url = seoUrl(canonicalPath(productHref(product.slug), product.legacyPath), origin)
+  if (!url || !product.name?.trim() || product.published === false) return null
+  return productSchema(product, url, origin)
 }
 
 /** Include one canonical URL per reachable record, following the same collision order as the pages. */

@@ -9,7 +9,7 @@ import { clampQty, MAX_LINE_QTY, sameLine, useCart } from './cart'
  * `price` is already resolved on the server: the variant's own price or the product price.
  */
 type Variant = { label: string; stock?: number | null; image?: string; id?: string | null; sku?: string | null; price: Price }
-type Img = { url: string; thumb: string; alt: string }
+type Img = { url: string; thumb: string; alt: string; srcSet?: string; width?: number; height?: number }
 
 function PriceTag({ price }: { price: Price }) {
   if (price.current === null) return <p className="pprice"><span className="pprice-none">Cena na zapytanie</span></p>
@@ -38,14 +38,15 @@ export function ProductProvider({ children }: { children: React.ReactNode }) {
 export function Gallery({ images }: { images: Img[] }) {
   const { image, setImage } = useContext(VariantCtx)
   const main = image || images[0]?.url
+  const current = images.find((item) => item.url === main)
   return (
     <div className="gal">
-      <div className="main">{main && <img src={main} alt={images.find((i) => i.url === main)?.alt || ''} />}</div>
+      <div className="main">{main && <img src={main} srcSet={current?.srcSet} sizes={current?.srcSet ? '(max-width: 959px) calc(100vw - 96px), 520px' : undefined} width={current?.width} height={current?.height} alt={current?.alt || images[0]?.alt || ''} loading="eager" fetchPriority="high" decoding="async" />}</div>
       {images.length > 1 && (
         <div className="thumbs">
           {images.map((i, n) => (
             <button type="button" key={i.url} onClick={() => setImage(i.url)} className={'thumb' + (main === i.url ? ' thumb-on' : '')} aria-pressed={main === i.url} aria-label={`Zdjęcie ${n + 1} z ${images.length}`}>
-              <img src={i.thumb} alt="" />
+              <img src={i.thumb} alt="" loading="lazy" decoding="async" />
             </button>
           ))}
         </div>

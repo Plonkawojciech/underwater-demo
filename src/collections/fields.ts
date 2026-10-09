@@ -10,19 +10,19 @@ export const clearOnDuplicate: FieldHook[] = [() => null]
 const draftOnDuplicate: FieldHook[] = [() => false]
 
 export const contentFields: Field[] = [
-  { name: 'published', label: 'Opublikowane', type: 'checkbox', defaultValue: false, index: true, admin: { position: 'sidebar' }, hooks: { beforeDuplicate: draftOnDuplicate } },
-  { name: 'legacyKey', label: 'Identyfikator źródłowy', type: 'text', unique: true, index: true, access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true, position: 'sidebar' } },
+  { name: 'published', label: 'Opublikowane', type: 'checkbox', defaultValue: false, index: true, admin: { position: 'sidebar', description: 'Zaznacz i zapisz, aby pokazać na stronie. Odznacz i zapisz, aby ukryć bez usuwania.' }, hooks: { beforeDuplicate: draftOnDuplicate } },
+  { name: 'legacyKey', label: 'Identyfikator źródłowy', type: 'text', unique: true, index: true, access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true, position: 'sidebar', description: 'Uzupełniany przy przenoszeniu treści; nowy wpis pozostawia to pole puste.' } },
   { name: 'sourceHash', type: 'text', access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true, hidden: true } },
   { name: 'importRun', type: 'text', access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true, hidden: true } },
   { name: 'importedAt', type: 'date', access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true, hidden: true } },
   { name: 'sourceUpdatedAt', type: 'date', access: importerOnly, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { readOnly: true, hidden: true } },
-  { name: 'legacyPath', label: 'Historyczny adres', type: 'text', index: true, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { position: 'sidebar' } },
+  { name: 'legacyPath', label: 'Historyczny adres', type: 'text', index: true, hooks: { beforeDuplicate: clearOnDuplicate }, admin: { position: 'sidebar', description: 'Zachowany adres ze starej strony. Przy nowej treści pozostaw puste; zmiana istniejącego adresu wymaga uzgodnienia przekierowania.' } },
   {
     name: 'seo', label: 'Wyszukiwarki', type: 'group',
     fields: [
-      { name: 'title', label: 'Tytuł strony', type: 'text' },
-      { name: 'description', label: 'Opis', type: 'textarea' },
-      { name: 'image', label: 'Zdjęcie udostępniania', type: 'upload', relationTo: 'media' },
+      { name: 'title', label: 'Tytuł strony', type: 'text', admin: { description: 'Opcjonalny tytuł dla wyszukiwarek i udostępniania. Puste pole używa nazwy lub tytułu treści.' } },
+      { name: 'description', label: 'Opis', type: 'textarea', admin: { description: 'Krótki opis strony. Jeśli pole jest puste, opis pochodzi z wprowadzenia lub treści.' } },
+      { name: 'image', label: 'Zdjęcie udostępniania', type: 'upload', relationTo: 'media', admin: { description: 'Opcjonalne zdjęcie do udostępnienia linku; nie zastępuje zdjęcia w treści.' } },
     ],
   },
 ]
@@ -39,5 +39,5 @@ export const longContent: Field = {
     try { sanitizeContent(value) } catch { return 'Treść po oczyszczeniu przekracza dopuszczalny rozmiar.' }
     return true
   },
-  admin: { description: 'Treść HTML ze źródła; przed publikacją aplikacja usuwa niebezpieczne elementy.' },
+  admin: { rows: 12, description: 'Opis widoczny na stronie. Przeniesiona formatowana treść zachowuje HTML; nowe opisy możesz pisać zwykłym tekstem.', components: { Field: '@/components/admin/BodyField' } },
 }

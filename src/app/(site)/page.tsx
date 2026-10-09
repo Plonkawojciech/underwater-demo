@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import {
-  asObject, contentHref, courseHref, mediaUrl, plainText, excerpt, phoneParts,
+  asObject, contentHref, courseHref, plainText, excerpt, phoneParts,
   type CourseDoc, type EventDoc, type PageDoc, type ProductDoc, type SessionDoc, type TripDoc,
 } from '@/lib/presentation'
 import { ProductCard } from '@/components/ProductCard'
+import { MediaImage } from '@/components/MediaImage'
 import { ArchiveItem, ArchiveList, DateRange, DateText } from '@/components/content'
 import { getSettings, isPreview, nowISO, publicFind } from '@/views/query'
 import { CourseLadder, nextByCourse, upcomingSessions } from '@/views/training'
@@ -31,14 +32,13 @@ export default async function Home() {
   const next = nextByCourse(sessions)
   const first = sessions[0]
   const firstCourse = first ? courses.docs.find((c) => c.id === (typeof first.course === 'object' ? first.course.id : first.course)) : undefined
-  const hero = mediaUrl(s.heroImage, 'full') || '/img/wyprawa.jpg'
   const phone = phoneParts(s.phone).find(part => part.href)
   const trip = trips.docs[0]
   const tripHref = trip ? hrefOf({ kind: 'trip', doc: trip }) : null
   return (
     <>
       <section className="hero">
-        <div className="hero-media"><img src={hero} alt="" fetchPriority="high" /></div>
+        <div className="hero-media"><MediaImage media={s.heroImage} fallback="/img/wyprawa.jpg" alt="" sizes="100vw" eager /></div>
         <div className="wrap">
           {first ? (
             <p className="hero-next">
@@ -69,7 +69,7 @@ export default async function Home() {
 
       {trip && tripHref && (
         <section className="band" aria-labelledby="h-wyprawy">
-          <img src={mediaUrl(trip.image, 'full') || '/img/wyprawa.jpg'} alt="" loading="lazy" />
+          <MediaImage media={trip.image} fallback="/img/wyprawa.jpg" alt="" sizes="100vw" />
           <div className="wrap">
             <p className="band-d mono">{trip.startsAt ? <DateRange from={trip.startsAt} to={trip.endsAt} /> : null}{trip.location ? `${trip.startsAt ? ', ' : ''}${trip.location}` : ''}</p>
             <h2 id="h-wyprawy" className="h2">{trip.title}</h2>

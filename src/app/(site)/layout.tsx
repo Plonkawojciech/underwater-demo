@@ -8,13 +8,17 @@ import { Footer } from '@/components/Footer'
 import { SITE_NAV } from '@/components/nav'
 import { DateText } from '@/components/content'
 import { PhoneLinks } from '@/components/Phone'
+import { JsonLd } from '@/components/content'
+import { organizationSchema } from '@/lib/seo'
 import { AnalyticsPreview } from '@/components/AnalyticsPreview'
 import { courseHref, type CourseDoc, type SessionDoc } from '@/lib/presentation'
 import { getLegalLinks, getSettings, isPreview, nowISO, publicFind, siteOrigin } from '@/views/query'
 
-const display = Newsreader({ subsets: ['latin', 'latin-ext'], weight: ['400', '500'], style: ['normal', 'italic'], variable: '--font-display' })
-const body = Archivo({ subsets: ['latin', 'latin-ext'], weight: ['400', '500', '600'], variable: '--font-body' })
-const mono = IBM_Plex_Mono({ subsets: ['latin', 'latin-ext'], weight: ['400', '500'], variable: '--font-mono' })
+// CSS discovers the used faces without spending the image's critical bandwidth on
+// unused weights/subsets. Latin-ext stays available for Polish names and content.
+const display = Newsreader({ subsets: ['latin', 'latin-ext'], weight: ['400'], style: ['normal'], preload: false, variable: '--font-display' })
+const body = Archivo({ subsets: ['latin', 'latin-ext'], preload: false, variable: '--font-body' })
+const mono = IBM_Plex_Mono({ subsets: ['latin', 'latin-ext'], weight: ['400', '500'], preload: false, adjustFontFallback: false, fallback: ['Courier New', 'monospace'], variable: '--font-mono' })
 
 export async function generateMetadata(): Promise<Metadata> {
   const origin = siteOrigin()
@@ -43,9 +47,11 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
   // Plain text from settings, shown as written; nothing is shown when the field is empty.
   const banner = s.banner?.replace(/\s+/g, ' ').trim()
   const course = next && typeof next.course === 'object' ? (next.course as CourseDoc) : null
+  const organization = organizationSchema(s, siteOrigin())
   return (
     <html lang="pl" data-scroll-behavior="smooth" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
+        {organization ? <JsonLd data={organization} /> : null}
         <CartProvider>
           {preview ? <AnalyticsPreview /> : null}
           {banner ? <div className="site-banner" role="region" aria-label="Komunikat"><p className="wrap">{banner}</p></div> : null}

@@ -23,8 +23,8 @@ RUN pnpm run build
 FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=builder /app ./
-RUN mkdir -p /data && chown -R node:node /data /app
+COPY --from=builder --chown=node:node /app ./
+RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 CMD ["node", "scripts/health.mjs"]
