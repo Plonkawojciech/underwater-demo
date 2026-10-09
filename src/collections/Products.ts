@@ -80,7 +80,7 @@ export const Products: CollectionConfig = {
         { name: 'value', label: 'Wartość', type: 'text', required: true },
       ] }],
     },
-    { name: 'featured', label: 'Pokaż w promocjach na stronie głównej', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar' } },
+    { name: 'featured', label: 'Pokaż w promocjach na stronie głównej', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar', components: { Cell: '@/components/admin/BooleanCell' } } },
     { name: 'warranty', label: 'Gwarancja', type: 'text', admin: { position: 'sidebar' } },
     ...contentFields,
   ],
