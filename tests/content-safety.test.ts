@@ -62,7 +62,7 @@ test('bundle redirects may not replace the home page, an application route or a 
 
 const root = mkdtempSync(path.join(tmpdir(), 'underwater-content-safety-'))
 mkdirSync(path.join(root, 'media'))
-Object.assign(process.env, { UNDERWATER_ENVIRONMENT: 'test', UNDERWATER_DATA_ROOT: root, DATABASE_URI: `file:${root}/underwater-test.db`, MEDIA_DIR: `${root}/media`, NEXT_PUBLIC_SERVER_URL: 'http://localhost:3011', PAYLOAD_SECRET: 'synthetic-content-safety-secret-not-used-in-runtime' })
+Object.assign(process.env, { UNDERWATER_ENVIRONMENT: 'test', UNDERWATER_DATA_ROOT: root, DATABASE_URI: `file:${root}/underwater-test.db`, MEDIA_DIR: `${root}/media`, UNDERWATER_ORIGIN: 'http://localhost:3011', NEXT_PUBLIC_SERVER_URL: 'http://localhost:3011', PAYLOAD_SECRET: 'synthetic-content-safety-secret-not-used-in-runtime' })
 let payload: Payload
 let editor: Record<string, unknown>
 let category: number
