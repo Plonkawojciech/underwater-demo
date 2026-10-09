@@ -59,7 +59,13 @@ if result.returncode:
  # SDK errors can contain input; never forward their traces or supplied secrets.
  stderr=result.stderr.decode(errors='replace')
  kinds=sorted(set(re.findall(r'(?m)^(?:[A-Za-z0-9_.]*\.)?([A-Za-z][A-Za-z0-9]*Error)(?:\s*\[[A-Z_]+\])?:',stderr)))
- print(json.dumps({'operation':i['mode'],'success':False,'exitCode':result.returncode,'errorTypes':kinds}))
+ fields=[]
+ for line in result.stdout.decode(errors='replace').splitlines():
+  try:
+   diagnostic=json.loads(line)
+   if isinstance(diagnostic,dict) and isinstance(diagnostic.get('importValidationFields'),list):fields.extend(value for value in diagnostic['importValidationFields'] if isinstance(value,str) and re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_.\[\]-]{0,159}',value))
+  except (ValueError,TypeError):pass
+ print(json.dumps({'operation':i['mode'],'success':False,'exitCode':result.returncode,'errorTypes':kinds,'validationFields':sorted(set(fields))[:100]}))
  raise SystemExit(1)
 if not result.stdout.strip():
  print(json.dumps({'operation':i['mode'],'success':False,'reason':'Missing operation result; inspect state before any retry.'}))
@@ -71,7 +77,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['bootstrap', 'counts', 'dry-run', 'import'])
     parser.add_argument('commit', help='Exact reviewed and deployed 40-character commit')
-    parser.add_argument('--bundle', choices=['priority', 'public', 'public-final'])
+    parser.add_argument('--bundle', choices=['priority', 'public', 'public-final', 'public-recovered-final'])
     args = parser.parse_args()
     if not re.fullmatch(r'[a-f0-9]{40}', args.commit): raise ValueError('An exact reviewed commit is required.')
     supplied = {}

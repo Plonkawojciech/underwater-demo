@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
-import { getPayload } from 'payload'
+import { getPayload, ValidationError } from 'payload'
 import config from '../../src/payload.config'
 import { importBundle } from '../../src/lib/import/service'
 
@@ -31,4 +31,9 @@ try {
   for (const item of result.unresolved) { const kind = item.split(':')[0]; byKind[kind] = (byKind[kind] || 0) + 1 }
   const { unresolved, ...summary } = result
   console.log(JSON.stringify({ ...summary, unresolved: { total: unresolved.length, byKind } }))
+} catch (error) {
+  // The deployment wrapper suppresses SDK traces. Its eligible stdout
+  // diagnostic includes only bounded schema field paths, never source values.
+  if (error instanceof ValidationError) console.log(JSON.stringify({ importValidationFields: error.data.errors.map(item => item.path).filter(value => /^[a-zA-Z][a-zA-Z0-9_.\[\]-]{0,159}$/.test(value)) }))
+  throw error
 } finally { await payload.destroy() }

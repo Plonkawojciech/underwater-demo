@@ -380,21 +380,27 @@ export async function importBundle(payload: Payload, raw: unknown, mediaRoot: st
   }
 
 
-  if (dryRun) {
+  // Run the complete mapping/normalization preflight before claiming a run or
+  // uploading any files. A small source can expand during HTML sanitization.
+  {
     const plan = { ...emptyCounts(), mediaCreated: 0 }
+    // Live review must reflect committed IDs, not placeholder projections.
+    const planUnresolved = dryRun ? unresolved : new Set(unresolved)
     sources.forEach(({ descriptor }, index) => {
       const doc = storedMedia.get(descriptor.key)
       ctx.ids.set('media:' + descriptor.key, doc?.id ?? -(index + 1))
-      const url = doc ? mediaURL(doc) : `/api/media/file/dry-run-${index}`
+      // Reserve the full supported filename length for not-yet-stored media,
+      // so preflight cannot underestimate normalized image markup.
+      const url = doc ? mediaURL(doc) : `/api/media/file/${'x'.repeat(255)}`
       if (url) ctx.mediaURL.set(descriptor.key, url)
       if (doc) plan.mediaExisting++; else plan.mediaCreated++
-      for (const issue of mediaIssues.get(descriptor.key) || []) unresolved.add(issue)
+      for (const issue of mediaIssues.get(descriptor.key) || []) planUnresolved.add(issue)
     })
     documentSources.forEach(({ descriptor }, index) => {
       const doc = storedDocuments.get(descriptor.key)
       ctx.documentURL.set(descriptor.key, doc ? mediaURL(doc)! : `/api/documents/file/dry-run-${index}.pdf`)
       if (doc) plan.documentsExisting++; else plan.documentsCreated++
-      for (const issue of documentIssues.get(descriptor.key) || []) unresolved.add(issue)
+      for (const issue of documentIssues.get(descriptor.key) || []) planUnresolved.add(issue)
     })
     const ours = new Map<string, Doc>()
     for (const collection of importCollections) for (const [key, doc] of await byLegacyKeys(payload, collection, validated.entities.filter(entity => entity.collection === collection).map(entity => entity.key))) ours.set(`${collection}:${key}`, doc)
@@ -403,12 +409,15 @@ export async function importBundle(payload: Payload, raw: unknown, mediaRoot: st
       ctx.ids.set(entity.id, previous?.id ?? -(1_000_000 + index))
       const action = decision.action === 'create' ? 'created' : decision.action === 'update' ? 'updated' : decision.action === 'conflict' ? 'conflicts' : decision.action
       plan[action]++
-      if (decision.action === 'conflict') unresolved.add(`${decision.reason}:${entity.id}`)
-      for (const note of prepared.notes) unresolved.add(note)
+      if (decision.action === 'conflict') planUnresolved.add(`${decision.reason}:${entity.id}`)
+      for (const note of prepared.notes) planUnresolved.add(note)
     })
-    if (validated.settings) for (const name of await settingsChanges(payload, validated.settings, ctx).then(result => result.conflicts)) unresolved.add(`settings-conflict:${name}`)
-    return { dryRun: true as const, runKey, status: 'dry-run' as const, sourceComplete: false, sourceVerification: verification, entities: validated.entities.length, media: sources.length, documents: documentSources.length, plan, unresolved: finalList(unresolved), checked: ['bundle-schema', 'relations', 'paths', 'media-digests', 'database-collisions', 'stored-media-files', 'manual-edits', 'variant-topology', 'session-capacity', 'html-images', 'public-pdf-documents', 'settings'] }
+    if (validated.settings) for (const name of await settingsChanges(payload, validated.settings, ctx).then(result => result.conflicts)) planUnresolved.add(`settings-conflict:${name}`)
+    if (dryRun) return { dryRun: true as const, runKey, status: 'dry-run' as const, sourceComplete: false, sourceVerification: verification, entities: validated.entities.length, media: sources.length, documents: documentSources.length, plan, unresolved: finalList(unresolved), checked: ['bundle-schema', 'relations', 'paths', 'media-digests', 'database-collisions', 'stored-media-files', 'manual-edits', 'variant-topology', 'session-capacity', 'html-images', 'public-pdf-documents', 'settings'] }
   }
+  // Placeholder relation IDs belong only to the read-only plan. Live mapping
+  // must resolve committed records and actual stored media URLs.
+  ctx.ids.clear(); ctx.mediaURL.clear(); ctx.documentURL.clear()
 
   // 4. Live import under an exclusive run claim.
   const lease = await claimRun(payload, runKey, bundle.source, leaseMs)

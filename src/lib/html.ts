@@ -2,8 +2,10 @@ import sanitizeHtml from 'sanitize-html'
 
 export function sanitizeContent(raw: string | null | undefined, resolveMedia?: (src: string) => string | undefined, resolveLink?: (href: string) => string): string {
   if (!raw) return ''
-  if (raw.length > 1_000_000) throw new Error('Content exceeds the permitted size.')
-  return sanitizeHtml(raw, {
+  // Import DTOs cap source HTML at 1 MB; rendering also accepts its expanded,
+  // already normalized form. Keep both input and output explicitly bounded.
+  if (raw.length > 8_000_000) throw new Error('Content exceeds the permitted size.')
+  const normalized = sanitizeHtml(raw, {
     allowedTags: ['p', 'br', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'blockquote', 'a', 'img', 'figure', 'figcaption', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'hr', 'div', 'span', 'sup', 'sub', 'dl', 'dt', 'dd'],
     allowedAttributes: { a: ['href', 'title', 'rel'], img: ['src', 'alt', 'width', 'height', 'loading'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan', 'scope'], ol: ['start'] },
     allowedSchemes: ['https', 'http', 'mailto', 'tel'], allowProtocolRelative: false,
@@ -27,4 +29,6 @@ export function sanitizeContent(raw: string | null | undefined, resolveMedia?: (
       },
     },
   })
+  if (normalized.length > 8_000_000) throw new Error('Normalized content exceeds the permitted size.')
+  return normalized
 }

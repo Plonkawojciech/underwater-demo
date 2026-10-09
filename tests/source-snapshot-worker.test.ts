@@ -138,6 +138,9 @@ function writeInventory(space: Space, inventory: Inventory) {
 function run(space: Space, files: Record<string, Spec>, options: Record<string, unknown> = {}, credentials?: string): Run {
   const config = {
     dest: space.dest,
+    // Synthetic transfers must not depend on the host's available disk space.
+    // Explicit low-space cases below still exercise the production reserve.
+    free_bytes: 100 * 1024 ** 3,
     password_sha256: createHash('sha256').update(space.password).digest('hex'),
     files: Object.fromEntries(Object.entries(files).map(([p, spec]) => [p, { ...spec, data: Buffer.from(spec.data).toString('base64') }])),
     ...options,

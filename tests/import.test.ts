@@ -360,3 +360,39 @@ test('a corrupt document fails preflight before any entity, run or upload is wri
   await assert.rejects(run({ version: 1, source: { kind: 'demo', manifestHash: 'e'.repeat(64), capturedAt: '2026-10-09T00:00:00Z', complete: false }, media: [], entities: [], documents: [{ key: 'synthetic-bad-pdf', path: 'documents/bad.pdf', sha256: sha(body), title: 'Nieprawidłowy', url: '/images/bad.pdf' }] }))
   assert.deepEqual(await snapshot(), before)
 })
+
+test('archival HTML above 40 KB imports intact while the 1 MB DTO bound rejects before writes', async () => {
+  const bundle = fresh('large-archive')
+  const html = '<p>' + 'Archival content '.repeat(3000) + '</p>'
+  assert.ok(html.length > 40_000)
+  const records = bundle.entities.filter(item => ['products', 'courses', 'pages', 'trips', 'events'].includes(item.collection))
+  for (const record of records) record.data.body = html
+  const result = await run(bundle)
+  assert.equal(result.status, 'needs-review')
+  for (const record of records) assert.equal((await one(record.collection as CollectionSlug, record.key)).body, html)
+  assert.equal((await run(bundle)).counts.unchanged, bundle.entities.length)
+  const dense = fresh('dense-archive')
+  const links = '<a href="/x">x</a>'.repeat(Math.floor(999_000 / '<a href="/x">x</a>'.length))
+  entity(dense, 'dense-archive-page').data.body = links
+  await run(dense)
+  const normalized = (await one('pages', 'dense-archive-page')).body
+  assert.ok(normalized.length > 1_000_000, 'normalization may expand a valid source DTO')
+  const { sanitizeContent } = await import('../src/lib/html')
+  assert.equal(sanitizeContent(normalized), normalized, 'stored expanded HTML remains renderable')
+  assert.equal((await run(dense)).counts.unchanged, dense.entities.length)
+  assert.throws(() => sanitizeContent('x'.repeat(8_000_001)), /permitted size/)
+  assert.equal(payload.config.defaultMaxTextLength, 40_000, 'unrelated text and credential limits stay bounded')
+  const before = await snapshot()
+  const oversized = fresh('oversized-archive')
+  entity(oversized, 'oversized-archive-page').data.body = 'x'.repeat(1_000_001)
+  await assert.rejects(run(oversized), /HTML up to 1 MB/)
+  assert.deepEqual(await snapshot(), before)
+  const expanding = fresh('expanding-archive')
+  const tooManyTags = '<a>'.repeat(280_000)
+  assert.ok(tooManyTags.length < 1_000_000)
+  entity(expanding, 'expanding-archive-page').data.body = tooManyTags
+  await assert.rejects(run(expanding), /Normalized content exceeds/)
+  assert.deepEqual(await snapshot(), before, 'normalization failure precedes any import write')
+  await assert.rejects(payload.create({ collection: 'pages', data: { title: 'Synthetic invalid expansion', path: '/synthetic-invalid-expansion.html', kind: 'page', body: tooManyTags }, overrideAccess: true }), error => error instanceof Error && error.name === 'ValidationError')
+  assert.deepEqual(await snapshot(), before, 'CMS refuses content that could fail during rendering')
+})

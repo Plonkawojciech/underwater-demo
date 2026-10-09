@@ -1,4 +1,5 @@
 import type { Field, FieldAccess, FieldHook } from 'payload'
+import { sanitizeContent } from '../lib/html'
 
 // Import provenance is written only by the importer and seed through the local API
 // (overrideAccess: true). REST and admin writes cannot set or change it, and a duplicate
@@ -28,5 +29,15 @@ export const contentFields: Field[] = [
 
 export const longContent: Field = {
   name: 'body', label: 'Pełna treść', type: 'textarea',
+  // Source DTOs stay capped at 1 MB. Sanitization adds safe attributes and
+  // escapes entities, so normalized HTML needs room beyond that input bound.
+  // Other text fields and credentials keep their existing limits.
+  maxLength: 8_000_000,
+  validate: (value: unknown) => {
+    if (value == null) return true
+    if (typeof value !== 'string' || value.length > 8_000_000) return 'Treść przekracza dopuszczalny rozmiar.'
+    try { sanitizeContent(value) } catch { return 'Treść po oczyszczeniu przekracza dopuszczalny rozmiar.' }
+    return true
+  },
   admin: { description: 'Treść HTML ze źródła; przed publikacją aplikacja usuwa niebezpieczne elementy.' },
 }
