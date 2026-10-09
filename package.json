@@ -21,6 +21,7 @@
     "graphql": "16.14.2",
     "next": "16.4.0",
     "payload": "3.90.2",
+    "pdf-lib": "1.17.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "sanitize-html": "2.18.0",

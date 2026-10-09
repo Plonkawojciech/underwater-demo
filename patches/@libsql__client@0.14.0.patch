@@ -1,5 +1,5 @@
 diff --git a/lib-cjs/sqlite3.js b/lib-cjs/sqlite3.js
-index f4796126b19f6ec1e1df0b7c42db38a666004b3b..8850189320d6b5878d64dc56b017ac3493017e8e 100644
+index f4796126b19f6ec1e1df0b7c42db38a666004b3b..8b75ad2beee94503daa0f0fda674981d98e58ef0 100644
 --- a/lib-cjs/sqlite3.js
 +++ b/lib-cjs/sqlite3.js
 @@ -66,6 +66,9 @@ function _createClient(config) {
@@ -12,7 +12,76 @@ index f4796126b19f6ec1e1df0b7c42db38a666004b3b..8850189320d6b5878d64dc56b017ac34
      executeStmt(db, "SELECT 1 AS checkThatTheDatabaseCanBeOpened", config.intMode);
      return new Sqlite3Client(path, options, db, config.intMode);
  }
-@@ -183,6 +186,9 @@ class Sqlite3Client {
+@@ -75,6 +78,8 @@ class Sqlite3Client {
+     #options;
+     #db;
+     #intMode;
++    #idleTransactionDb = null;
++    #activeTransactionDbs = new Set();
+     closed;
+     protocol;
+     /** @private */
+@@ -104,7 +109,7 @@ class Sqlite3Client {
+         this.#checkNotClosed();
+         const db = this.#getDb();
+         try {
+-            executeStmt(db, (0, util_1.transactionModeToBegin)(mode), this.#intMode);
++            executeMultiple(db, (0, util_1.transactionModeToBegin)(mode));
+             const resultSets = stmts.map((stmt) => {
+                 if (!db.inTransaction) {
+                     throw new api_1.LibsqlError("The transaction has been rolled back", "TRANSACTION_CLOSED");
+@@ -143,10 +148,31 @@ class Sqlite3Client {
+         }
+     }
+     async transaction(mode = "write") {
+-        const db = this.#getDb();
+-        executeStmt(db, (0, util_1.transactionModeToBegin)(mode), this.#intMode);
+-        this.#db = null; // A new connection will be lazily created on next use
+-        return new Sqlite3Transaction(db, this.#intMode);
++        this.#checkNotClosed();
++        // Keep one reusable file-backed transaction connection separate from
++        // ordinary reads. Detached connections otherwise grow by one per write;
++        // native prepared statements keep their file handles alive until GC.
++        // In-memory connections retain the upstream behaviour.
++        if (this.#path.includes(":memory:")) {
++            const db = this.#getDb();
++            executeMultiple(db, (0, util_1.transactionModeToBegin)(mode));
++            this.#db = null;
++            return new Sqlite3Transaction(db, this.#intMode);
++        }
++        const db = this.#idleTransactionDb || new libsql_1.default(this.#path, this.#options);
++        this.#idleTransactionDb = null;
++        const release = () => {
++            this.#activeTransactionDbs.delete(db);
++            if (!this.closed && db.open && !db.inTransaction && this.#idleTransactionDb === null) this.#idleTransactionDb = db;
++            else if (db.open) db.close();
++        };
++        try {
++            executeMultiple(db, "PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
++            executeMultiple(db, (0, util_1.transactionModeToBegin)(mode));
++        }
++        catch (error) { release(); throw error; }
++        this.#activeTransactionDbs.add(db);
++        return new Sqlite3Transaction(db, this.#intMode, release);
+     }
+     async executeMultiple(sql) {
+         this.#checkNotClosed();
+@@ -170,9 +196,11 @@ class Sqlite3Client {
+     }
+     close() {
+         this.closed = true;
+-        if (this.#db !== null) {
+-            this.#db.close();
+-        }
++        if (this.#db !== null && this.#db.open) this.#db.close();
++        if (this.#idleTransactionDb?.open) this.#idleTransactionDb.close();
++        this.#idleTransactionDb = null;
++        for (const db of this.#activeTransactionDbs) if (db.open) db.close();
++        this.#activeTransactionDbs.clear();
+     }
+     #checkNotClosed() {
+         if (this.closed) {
+@@ -183,6 +211,9 @@ class Sqlite3Client {
      #getDb() {
          if (this.#db === null) {
              this.#db = new libsql_1.default(this.#path, this.#options);
@@ -22,8 +91,66 @@ index f4796126b19f6ec1e1df0b7c42db38a666004b3b..8850189320d6b5878d64dc56b017ac34
          }
          return this.#db;
      }
+@@ -191,10 +222,18 @@ exports.Sqlite3Client = Sqlite3Client;
+ class Sqlite3Transaction {
+     #database;
+     #intMode;
++    #released = false;
++    #onRelease;
+     /** @private */
+-    constructor(database, intMode) {
++    constructor(database, intMode, onRelease) {
+         this.#database = database;
+         this.#intMode = intMode;
++        this.#onRelease = onRelease;
++    }
++    #release() {
++        if (this.#released) return;
++        this.#released = true;
++        this.#onRelease?.();
+     }
+     async execute(stmtOrSql, args) {
+         let stmt;
+@@ -221,23 +260,27 @@ class Sqlite3Transaction {
+         return executeMultiple(this.#database, sql);
+     }
+     async rollback() {
+-        if (!this.#database.open) {
+-            return;
+-        }
+-        this.#checkNotClosed();
+-        executeStmt(this.#database, "ROLLBACK", this.#intMode);
++        if (this.#released) return;
++        try {
++            if (this.#database.open && this.#database.inTransaction) executeMultiple(this.#database, "ROLLBACK");
++        } finally { this.#release(); }
+     }
+     async commit() {
+         this.#checkNotClosed();
+-        executeStmt(this.#database, "COMMIT", this.#intMode);
++        // Transaction control uses exec rather than a prepared statement: a failed
++        // native COMMIT statement can otherwise retain a stale read snapshot.
++        // A failed COMMIT must leave the transaction available for ROLLBACK.
++        executeMultiple(this.#database, "COMMIT");
++        this.#release();
+     }
+     close() {
+-        if (this.#database.inTransaction) {
+-            executeStmt(this.#database, "ROLLBACK", this.#intMode);
+-        }
++        if (this.#released) return;
++        try {
++            if (this.#database.open && this.#database.inTransaction) executeMultiple(this.#database, "ROLLBACK");
++        } finally { this.#release(); }
+     }
+     get closed() {
+-        return !this.#database.inTransaction;
++        return this.#released || !this.#database.open || !this.#database.inTransaction;
+     }
+     #checkNotClosed() {
+         if (this.closed) {
 diff --git a/lib-esm/sqlite3.js b/lib-esm/sqlite3.js
-index 8aa7047c389fe062247a43b4c01d916a47cfb930..3ef30c34a892f9b641bd6c7abcac79feba861c57 100644
+index 8aa7047c389fe062247a43b4c01d916a47cfb930..2acd4e718efa612b51c571976ad51d6dce68872f 100644
 --- a/lib-esm/sqlite3.js
 +++ b/lib-esm/sqlite3.js
 @@ -45,6 +45,9 @@ export function _createClient(config) {
@@ -36,7 +163,76 @@ index 8aa7047c389fe062247a43b4c01d916a47cfb930..3ef30c34a892f9b641bd6c7abcac79fe
      executeStmt(db, "SELECT 1 AS checkThatTheDatabaseCanBeOpened", config.intMode);
      return new Sqlite3Client(path, options, db, config.intMode);
  }
-@@ -161,6 +164,9 @@ export class Sqlite3Client {
+@@ -53,6 +56,8 @@ export class Sqlite3Client {
+     #options;
+     #db;
+     #intMode;
++    #idleTransactionDb = null;
++    #activeTransactionDbs = new Set();
+     closed;
+     protocol;
+     /** @private */
+@@ -82,7 +87,7 @@ export class Sqlite3Client {
+         this.#checkNotClosed();
+         const db = this.#getDb();
+         try {
+-            executeStmt(db, transactionModeToBegin(mode), this.#intMode);
++            executeMultiple(db, transactionModeToBegin(mode));
+             const resultSets = stmts.map((stmt) => {
+                 if (!db.inTransaction) {
+                     throw new LibsqlError("The transaction has been rolled back", "TRANSACTION_CLOSED");
+@@ -121,10 +126,31 @@ export class Sqlite3Client {
+         }
+     }
+     async transaction(mode = "write") {
+-        const db = this.#getDb();
+-        executeStmt(db, transactionModeToBegin(mode), this.#intMode);
+-        this.#db = null; // A new connection will be lazily created on next use
+-        return new Sqlite3Transaction(db, this.#intMode);
++        this.#checkNotClosed();
++        // Keep one reusable file-backed transaction connection separate from
++        // ordinary reads. Detached connections otherwise grow by one per write;
++        // native prepared statements keep their file handles alive until GC.
++        // In-memory connections retain the upstream behaviour.
++        if (this.#path.includes(":memory:")) {
++            const db = this.#getDb();
++            executeMultiple(db, transactionModeToBegin(mode));
++            this.#db = null;
++            return new Sqlite3Transaction(db, this.#intMode);
++        }
++        const db = this.#idleTransactionDb || new Database(this.#path, this.#options);
++        this.#idleTransactionDb = null;
++        const release = () => {
++            this.#activeTransactionDbs.delete(db);
++            if (!this.closed && db.open && !db.inTransaction && this.#idleTransactionDb === null) this.#idleTransactionDb = db;
++            else if (db.open) db.close();
++        };
++        try {
++            executeMultiple(db, "PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
++            executeMultiple(db, transactionModeToBegin(mode));
++        }
++        catch (error) { release(); throw error; }
++        this.#activeTransactionDbs.add(db);
++        return new Sqlite3Transaction(db, this.#intMode, release);
+     }
+     async executeMultiple(sql) {
+         this.#checkNotClosed();
+@@ -148,9 +174,11 @@ export class Sqlite3Client {
+     }
+     close() {
+         this.closed = true;
+-        if (this.#db !== null) {
+-            this.#db.close();
+-        }
++        if (this.#db !== null && this.#db.open) this.#db.close();
++        if (this.#idleTransactionDb?.open) this.#idleTransactionDb.close();
++        this.#idleTransactionDb = null;
++        for (const db of this.#activeTransactionDbs) if (db.open) db.close();
++        this.#activeTransactionDbs.clear();
+     }
+     #checkNotClosed() {
+         if (this.closed) {
+@@ -161,6 +189,9 @@ export class Sqlite3Client {
      #getDb() {
          if (this.#db === null) {
              this.#db = new Database(this.#path, this.#options);
@@ -46,3 +242,61 @@ index 8aa7047c389fe062247a43b4c01d916a47cfb930..3ef30c34a892f9b641bd6c7abcac79fe
          }
          return this.#db;
      }
+@@ -168,10 +199,18 @@ export class Sqlite3Client {
+ export class Sqlite3Transaction {
+     #database;
+     #intMode;
++    #released = false;
++    #onRelease;
+     /** @private */
+-    constructor(database, intMode) {
++    constructor(database, intMode, onRelease) {
+         this.#database = database;
+         this.#intMode = intMode;
++        this.#onRelease = onRelease;
++    }
++    #release() {
++        if (this.#released) return;
++        this.#released = true;
++        this.#onRelease?.();
+     }
+     async execute(stmtOrSql, args) {
+         let stmt;
+@@ -198,23 +237,27 @@ export class Sqlite3Transaction {
+         return executeMultiple(this.#database, sql);
+     }
+     async rollback() {
+-        if (!this.#database.open) {
+-            return;
+-        }
+-        this.#checkNotClosed();
+-        executeStmt(this.#database, "ROLLBACK", this.#intMode);
++        if (this.#released) return;
++        try {
++            if (this.#database.open && this.#database.inTransaction) executeMultiple(this.#database, "ROLLBACK");
++        } finally { this.#release(); }
+     }
+     async commit() {
+         this.#checkNotClosed();
+-        executeStmt(this.#database, "COMMIT", this.#intMode);
++        // Transaction control uses exec rather than a prepared statement: a failed
++        // native COMMIT statement can otherwise retain a stale read snapshot.
++        // A failed COMMIT must leave the transaction available for ROLLBACK.
++        executeMultiple(this.#database, "COMMIT");
++        this.#release();
+     }
+     close() {
+-        if (this.#database.inTransaction) {
+-            executeStmt(this.#database, "ROLLBACK", this.#intMode);
+-        }
++        if (this.#released) return;
++        try {
++            if (this.#database.open && this.#database.inTransaction) executeMultiple(this.#database, "ROLLBACK");
++        } finally { this.#release(); }
+     }
+     get closed() {
+-        return !this.#database.inTransaction;
++        return this.#released || !this.#database.open || !this.#database.inTransaction;
+     }
+     #checkNotClosed() {
+         if (this.closed) {
