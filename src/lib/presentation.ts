@@ -359,8 +359,10 @@ export function contentHref(path?: string | null): string | null {
 /** The old address stays canonical when it is a plain site path; otherwise the built one. */
 export function canonicalPath(built: string | null, legacyPath?: string | null): string | null {
   const l = legacyPath?.trim()
-  if (l && /^\/(?![/\\])/.test(l) && !/[?#\\\s]/.test(l)) return l
-  return built
+  const path = l && /^\/(?![/\\])/.test(l) && !/[?#\\\s]/.test(l) ? l : built
+  // Next serves site paths without a trailing slash. Keep metadata and sitemap
+  // on that served address while preserving the home canonical.
+  return path?.replace(/\/+$/, '') || (path === '/' ? '/' : null)
 }
 
 export function firstParam(v: string | string[] | undefined): string | undefined {

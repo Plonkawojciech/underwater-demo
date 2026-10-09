@@ -30,9 +30,9 @@ export default function InventoryActions() {
       if (response.ok && result.ok) window.location.reload()
     } catch { setMessage('Brak połączenia. Sprawdź stan przed ponowieniem korekty.') } finally { setPending(false) }
   }
-  return <div style={{ margin: '16px 0', padding: 16, border: '1px solid var(--theme-elevation-150)' }}>
+  return <div className="underwater-inventory-actions" style={{ margin: '16px 0', padding: 16, border: '1px solid var(--theme-elevation-150)' }}>
     <strong>Korekta magazynu w podglądzie</strong>
-    {variants.length ? <label style={{ display: 'block', margin: '8px 0' }}>Wariant <select value={variantId} onChange={event => { setVariant(event.target.value); setStock('') }}>{variants.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label> : null}
+    {variants.length ? <label style={{ display: 'block', margin: '8px 0' }}>Wariant <select style={{ display: 'block', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }} value={variantId} onChange={event => { setVariant(event.target.value); setStock('') }}>{variants.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label> : null}
     <p>Stan bieżący: {expectedStock === null ? 'niepotwierdzony' : expectedStock}</p>
     <label htmlFor={label}>Nowy potwierdzony stan</label>{' '}<input id={label} inputMode="numeric" value={stock} onChange={event => setStock(event.target.value)} disabled={pending || !current} />{' '}
     <button type="button" onClick={submit} disabled={pending || !current || !stock}>Zapisz korektę z audytem</button><p role="status">{message}</p>

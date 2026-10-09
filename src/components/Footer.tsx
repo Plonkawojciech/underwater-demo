@@ -27,7 +27,7 @@ export function Footer({ s, nav, legal, preview }: { s: SettingsDoc; nav: NavIte
       <div><h2 className="foot-h">Dokumenty</h2><ul>
         {legal.map((l) => <li key={l.href}><Link href={l.href}>{l.title}</Link></li>)}
         {!legal.length ? <li className="foot-note">Regulamin i polityka prywatności nie są jeszcze opublikowane w tej wersji podglądowej.</li> : null}
-        <li><CookieSettings preview={preview} /></li>
+        <li><CookieSettings preview={preview} privacyHref={legal.find((link) => link.role === 'privacy')?.href} /></li>
       </ul></div>
       <div className="cr">
         <span>© {new Date().getFullYear()} Underwater.pl</span>

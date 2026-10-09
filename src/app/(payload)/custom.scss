@@ -1,0 +1,36 @@
+/* Keep Payload's navigation usable when the breadcrumb contains an order UUID.
+ * The overflowing metadata strip remains scrollable within its own container. */
+@media (max-width: 767px) {
+  .app-header__controls-wrapper,
+  .app-header__step-nav-wrapper,
+  .app-header__step-nav {
+    min-width: 0;
+  }
+
+  .app-header__step-nav-wrapper,
+  .app-header__step-nav {
+    flex: 1;
+    max-width: 100%;
+  }
+
+  .app-header__step-nav .step-nav__last {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .app-header__account {
+    flex-shrink: 0;
+  }
+
+  .underwater-record-actions,
+  .underwater-inventory-actions {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .underwater-inventory-actions input,
+  .underwater-inventory-actions button {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+}

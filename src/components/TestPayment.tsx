@@ -8,11 +8,22 @@ import { Notice } from './content/States'
 type Info = {
   number: string; totalCents: number; currency: string; status: string; expiresAt?: string
   paymentMethod: string; orderStatus?: string; deliveryLabel?: string; pickupPointName?: string; paymentSurchargeCents: number
+  payment: 'ready' | 'preparing' | 'review'; paymentLink?: string; simulation: boolean
 }
 type State = { s: 'loading' } | { s: 'error'; message: string } | { s: 'ready'; info: Info }
 type Outcome = 'paid' | 'failed' | 'cancelled'
+type Action = Outcome | 'resume'
 
-function parseInfo(d: unknown): Info | null {
+/** The server validates the operator's sandbox page; this only refuses anything that is not a plain HTTPS link without the private token. */
+function sandboxLink(value: unknown, token: string): string | undefined {
+  if (typeof value !== 'string' || value.length > 2048) return undefined
+  try {
+    const u = new URL(value)
+    return u.protocol === 'https:' && !u.username && !u.password && !value.includes(token) ? u.href : undefined
+  } catch { return undefined }
+}
+
+function parseInfo(d: unknown, token: string): Info | null {
   if (!d || typeof d !== 'object') return null
   const r = d as Record<string, unknown>
   if (r.ok !== true || typeof r.number !== 'string' || typeof r.status !== 'string' || typeof r.currency !== 'string') return null
@@ -26,6 +37,10 @@ function parseInfo(d: unknown): Info | null {
     deliveryLabel: typeof r.deliveryLabel === 'string' ? r.deliveryLabel.slice(0, 200) : undefined,
     pickupPointName: typeof r.pickupPointName === 'string' ? r.pickupPointName.slice(0, 120) : undefined,
     paymentSurchargeCents: typeof r.paymentSurchargeCents === 'number' && Number.isSafeInteger(r.paymentSurchargeCents) ? r.paymentSurchargeCents : 0,
+    // Older responses carry no preparation state: their online payment was the internal simulation.
+    payment: r.payment === 'preparing' || r.payment === 'review' ? r.payment : 'ready',
+    paymentLink: sandboxLink(r.paymentLink, token),
+    simulation: typeof r.simulation === 'boolean' ? r.simulation : true,
   }
 }
 const errorOf = (d: unknown, fallback: string) => {
@@ -46,7 +61,7 @@ const METHOD: Record<string, string> = {
  */
 export function TestPayment({ token }: { token: string }) {
   const [state, setState] = useState<State>({ s: 'loading' })
-  const [busy, setBusy] = useState<Outcome | null>(null)
+  const [busy, setBusy] = useState<Action | null>(null)
   const [actionError, setActionError] = useState('')
   const [now, setNow] = useState(() => Date.now())
 
@@ -55,7 +70,7 @@ export function TestPayment({ token }: { token: string }) {
     fetch(`/api/payments/test?token=${encodeURIComponent(token)}`, { cache: 'no-store', credentials: 'same-origin', signal: ctrl.signal })
       .then(async (res) => {
         const d = await res.json().catch(() => null)
-        const info = parseInfo(d)
+        const info = parseInfo(d, token)
         setState(info ? { s: 'ready', info } : { s: 'error', message: errorOf(d, 'Link do płatności jest nieprawidłowy albo wygasł.') })
       })
       .catch(() => { if (!ctrl.signal.aborted) setState({ s: 'error', message: 'Brak połączenia ze sklepem. Odśwież stronę.' }) })
@@ -67,18 +82,21 @@ export function TestPayment({ token }: { token: string }) {
     return () => clearInterval(t)
   }, [])
 
-  const act = async (outcome: Outcome) => {
-    setBusy(outcome)
+  // 'resume' repeats only the preparation of this saved order: no new order, quote or reservation.
+  const act = async (action: Action) => {
+    setBusy(action)
     setActionError('')
     try {
-      const res = await fetch('/api/payments/test', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, outcome }),
+      const res = await fetch(action === 'resume' ? '/api/payments/resume' : '/api/payments/test', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action === 'resume' ? { token } : { token, outcome: action }),
         cache: 'no-store', credentials: 'same-origin',
       })
       const d = await res.json().catch(() => null)
-      const info = parseInfo(d)
-      if (info) setState({ s: 'ready', info })
-      else setActionError(errorOf(d, 'Sklep nie przyjął wyniku płatności testowej.'))
+      const info = parseInfo(d, token)
+      if (info) {
+        setState({ s: 'ready', info })
+        if (action === 'resume' && info.status === 'pending' && info.payment === 'preparing') setActionError('Operator płatności jeszcze nie odpowiedział. Zamówienie i rezerwacja są zapisane; spróbuj ponownie za chwilę.')
+      } else setActionError(errorOf(d, action === 'resume' ? 'Nie udało się przygotować płatności. Spróbuj ponownie.' : 'Sklep nie przyjął wyniku płatności testowej.'))
     } catch {
       setActionError('Brak połączenia ze sklepem. Spróbuj ponownie.')
     } finally {
@@ -135,6 +153,24 @@ export function TestPayment({ token }: { token: string }) {
         </>
       ) : shipped && info.status === 'pending' ? (
         <p>Przesyłka testowa jest oznaczona jako nadana. Anulowanie wymaga kontaktu ze sklepem.</p>
+      ) : pending && info.payment === 'review' ? (
+        <Notice tone="info" title="Płatność wymaga kontaktu ze sklepem">
+          <p>Zamówienie jest zapisane. Obsługa sklepu sprawdzi płatność; nie ponawiaj jej samodzielnie.</p>
+        </Notice>
+      ) : pending && info.payment === 'preparing' ? (
+        <Notice tone="info" title="Płatność jest przygotowywana">
+          <p>Zamówienie i rezerwacja są zapisane. Ponowienie dotyczy tego samego zamówienia i nie utworzy drugiego.</p>
+          <div className="pay-act">
+            <button type="button" className="btn btn-solid" disabled={!!busy} onClick={() => act('resume')}>{busy === 'resume' ? 'Przygotowywanie…' : 'Ponów przygotowanie płatności'}</button>
+          </div>
+        </Notice>
+      ) : pending && info.paymentLink ? (
+        <div className="pay-act">
+          {/* The operator's sandbox page; the private status link is never passed to it. */}
+          <a className="btn btn-solid" href={info.paymentLink} rel="noopener noreferrer" referrerPolicy="no-referrer">Przejdź do płatności testowej operatora</a>
+        </div>
+      ) : pending && !info.simulation ? (
+        <p>Oczekujemy na potwierdzenie operatora płatności. Status odświeży się po ponownym otwarciu tej strony.</p>
       ) : pending ? (
         <div className="pay-act">
           <button type="button" className="btn btn-solid" disabled={!!busy} onClick={() => act('paid')}>{busy === 'paid' ? 'Zapisywanie…' : 'Symuluj udaną płatność'}</button>

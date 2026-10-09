@@ -637,4 +637,13 @@ main:focus{outline:none}
 
 /* znacznik wersji podglądowej: mały, nie przechwytuje kliknięć */
 .preview-badge{position:fixed;left:10px;bottom:10px;z-index:30;margin:0;padding:4px 9px;background:rgba(4,18,26,.86);color:#E4EDF1;border:1px solid var(--edge);font:500 11px/1.4 var(--font-mono),monospace;letter-spacing:.04em;pointer-events:none}
+.privacy-banner{--focus:var(--brass-ink);background:var(--shell);color:var(--ink);border-bottom:1px solid var(--ink-edge)}
+.privacy-banner-in{display:grid;gap:18px;max-width:var(--wrap);width:100%;margin:0 auto;padding:22px var(--gut)}
+.privacy-banner-text{min-width:0;max-width:76ch}
+.privacy-banner-text p{margin:10px 0 0;font-size:14px;line-height:1.6;overflow-wrap:break-word}
+.privacy-banner-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.privacy-banner-actions .btn{justify-content:center;white-space:normal;max-width:100%;padding:12px 16px}
+@media(min-width:1200px){.privacy-banner-in{grid-template-columns:minmax(0,1fr) auto;align-items:center}}
+@media(max-width:400px){.privacy-banner-actions .btn{width:100%}}
+@media print{.privacy-banner,.privacy-banner-status{display:none}}
 @media print{.preview-badge,.head,.topline,.foot{display:none}}

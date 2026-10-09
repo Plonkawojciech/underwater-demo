@@ -8,6 +8,7 @@ import { Footer } from '@/components/Footer'
 import { SITE_NAV } from '@/components/nav'
 import { DateText } from '@/components/content'
 import { PhoneLinks } from '@/components/Phone'
+import { AnalyticsPreview } from '@/components/AnalyticsPreview'
 import { courseHref, type CourseDoc, type SessionDoc } from '@/lib/presentation'
 import { getLegalLinks, getSettings, isPreview, nowISO, publicFind, siteOrigin } from '@/views/query'
 
@@ -43,9 +44,10 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
   const banner = s.banner?.replace(/\s+/g, ' ').trim()
   const course = next && typeof next.course === 'object' ? (next.course as CourseDoc) : null
   return (
-    <html lang="pl" className={`${display.variable} ${body.variable} ${mono.variable}`}>
+    <html lang="pl" data-scroll-behavior="smooth" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
         <CartProvider>
+          {preview ? <AnalyticsPreview /> : null}
           {banner ? <div className="site-banner" role="region" aria-label="Komunikat"><p className="wrap">{banner}</p></div> : null}
           {next || s.phone?.trim() ? (
             <div className="topline"><div className="wrap">
@@ -59,6 +61,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
             </div></div>
           ) : null}
           <Header nav={SITE_NAV} phone={s.phone} />
+          <div id="privacy-notice" />
           <main id="tresc" tabIndex={-1}>{children}</main>
           <Footer s={s} nav={SITE_NAV} legal={legal} preview={preview} />
           {preview ? <p className="preview-badge" title="Wersja podglądowa: zamówienia i płatności są testowe, strona nie jest indeksowana">Wersja podglądowa</p> : null}

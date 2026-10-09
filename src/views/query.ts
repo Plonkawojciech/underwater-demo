@@ -51,7 +51,9 @@ export async function publicFind<T>(collection: PublicCollection, a: FindArgs): 
 }
 
 export async function publicFirst<T>(collection: PublicCollection, where: Where, depth: number): Promise<T | null> {
-  const r = await publicFind<T>(collection, { where, limit: 1, depth })
+  // A legacy address can be shared by imported rows. Keep the same first-id
+  // tie-breaker as the sitemap and the proxy's live-content lookup.
+  const r = await publicFind<T>(collection, { where, limit: 1, depth, sort: 'id' })
   return r.docs[0] ?? null
 }
 

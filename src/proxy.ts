@@ -70,7 +70,7 @@ export async function proxy(request: NextRequest) {
         if (to && /^\/(?![/\\])/.test(to) && !/[\\\u0000-\u001F]/.test(to) && ![pathname, decoded].includes(to)) {
           // Live content always wins over a redirect stored for the same address.
           const { resolveSourceRoute } = await import('./lib/source-routes')
-          const live = await resolveSourceRoute(pathname.slice(1), async (collection, where) => (await payload.find({ collection, where: published(where), limit: 1, depth: 0, overrideAccess: false })).docs[0] as never ?? null, { redirects: false, depth: false })
+          const live = await resolveSourceRoute(pathname.slice(1), async (collection, where) => (await payload.find({ collection, where: published(where), limit: 1, depth: 0, sort: 'id', overrideAccess: false })).docs[0] as never ?? null, { redirects: false, depth: false })
           if (!live) {
             const destination = new URL(to, ownOrigin)
             if (!destination.search) destination.search = request.nextUrl.search

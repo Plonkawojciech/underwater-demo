@@ -173,7 +173,7 @@ test('a valid signature with wrong amount does not mutate the order', async () =
   const order = (await payload.find({ collection: 'orders', where: { number: { equals: created.number } }, depth: 0 })).docs[0]
   const attempt = (await payload.find({ collection: 'payment-attempts', where: { order: { equals: order.id } }, depth: 0 })).docs[0]
   const provider = new TestPaymentProvider(process.env.PAYLOAD_SECRET!)
-  const raw = JSON.stringify({ eventKey: randomUUID(), reference: attempt.reference, amountCents: 1, currency: 'PLN', outcome: 'paid' })
+  const raw = JSON.stringify({ eventKey: randomUUID(), reference: attempt.providerReference || attempt.reference, amountCents: 1, currency: 'PLN', outcome: 'paid' })
   await assert.rejects(acceptNotification(payload, provider.verify(raw, provider.sign(raw)), hash(raw)), InputError)
   assert.equal((await paymentSummary(payload, token)).status, 'pending')
 })
@@ -226,12 +226,14 @@ test('newsletter requires explicit opt-in and supports confirmation, replay and 
   await assert.rejects(newsletterToken(payload, confirm, 'confirm'), InputError)
 })
 
-test('a failed transaction completion cannot return a successful checkout', async () => {
+test('a committed checkout with a lost acknowledgement is reconciled before returning success', async () => {
   const p = await product(2), input = orderInput(p.id)
   const drizzle = payload.db.drizzle
   const original = drizzle.transaction.bind(drizzle)
   drizzle.transaction = ((...args: Parameters<typeof original>) => original(...args).then(() => { throw new Error('Injected COMMIT acknowledgement failure') })) as typeof drizzle.transaction
-  try { await assert.rejects(checkout(payload, input), /acknowledgement failure/) } finally { drizzle.transaction = original }
+  let recovered: Awaited<ReturnType<typeof checkout>>
+  try { recovered = await checkout(payload, input) } finally { drizzle.transaction = original }
+  assert.ok(recovered.paymentURL.startsWith('/platnosc-testowa?token='))
   const retried = await checkout(payload, input)
   assert.ok(retried.number)
   assert.equal((await payload.findByID({ collection: 'products', id: p.id, depth: 0 })).stock, 1)

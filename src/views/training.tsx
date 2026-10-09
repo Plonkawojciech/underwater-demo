@@ -1,13 +1,14 @@
 import Link from 'next/link'
 import type { Where } from 'payload'
 import {
-  asObject, centsOf, COURSE_LEVEL, courseHref, formatMoney, mediaAlt, mediaUrl, seatsLeft, withQuery,
+  asObject, centsOf, COURSE_LEVEL, courseHref, formatMoney, jsonLd, mediaAlt, mediaUrl, seatsLeft, withQuery,
   type CourseDoc, type SessionDoc,
 } from '@/lib/presentation'
 import { SignupForm } from '@/components/SignupForm'
 import { AlbumGrid } from '@/components/Lightbox'
 import { Crumbs, DateRange, DateText, EmptyState, Pagination, PlainText, RichBody } from '@/components/content'
-import { getLegalLinks, nowISO, PAGE_SIZE, publicFind } from './query'
+import { getLegalLinks, nowISO, PAGE_SIZE, publicFind, siteOrigin } from './query'
+import { courseSchema } from '@/lib/seo'
 
 const ORGS = ['PADI', 'IANTD', 'TDI/SDI', 'Freediving', 'Inne'] as const
 const COURSES = '/kursy-nurkowania.html'
@@ -114,8 +115,10 @@ export async function CoursePage({ course: c }: { course: CourseDoc }) {
   const gallery = (c.gallery || []).filter((g) => asObject(g))
   const hasBody = !!c.body?.trim()
   const hasSections = !!c.sections?.length
+  const schema = courseSchema(c, siteOrigin())
   return (
     <>
+      {schema ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(schema) }} /> : null}
       <section className="chero">
         <img src={hero} alt="" />
         <div className="wrap">

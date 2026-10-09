@@ -652,6 +652,12 @@ export interface PaymentAttempt {
   currency?: 'PLN' | null;
   status?: ('pending' | 'paid' | 'failed' | 'cancelled' | 'expired') | null;
   expiresAt?: string | null;
+  initialization?: ('initializing' | 'ready') | null;
+  paymentUrl?: string | null;
+  initializationLease?: string | null;
+  initializationLeaseUntil?: string | null;
+  initializationKey?: string | null;
+  providerReference?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1411,6 +1417,12 @@ export interface PaymentAttemptsSelect<T extends boolean = true> {
   currency?: T;
   status?: T;
   expiresAt?: T;
+  initialization?: T;
+  paymentUrl?: T;
+  initializationLease?: T;
+  initializationLeaseUntil?: T;
+  initializationKey?: T;
+  providerReference?: T;
   updatedAt?: T;
   createdAt?: T;
 }

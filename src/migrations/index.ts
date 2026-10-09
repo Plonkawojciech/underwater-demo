@@ -8,6 +8,7 @@ import * as migration_20261009_004126_underwater_public_documents_contact_contex
 import * as migration_20261009_005425_underwater_unicode_catalog_search from './20261009_005425_underwater_unicode_catalog_search';
 import * as migration_20261009_010256_underwater_payment_delivery from './20261009_010256_underwater_payment_delivery';
 import * as migration_20261009_051355_underwater_public_listings from './20261009_051355_underwater_public_listings';
+import * as migration_20261009_070701_underwater_payment_initialization from './20261009_070701_underwater_payment_initialization';
 
 export const migrations = [
   {
@@ -58,6 +59,11 @@ export const migrations = [
   {
     up: migration_20261009_051355_underwater_public_listings.up,
     down: migration_20261009_051355_underwater_public_listings.down,
-    name: '20261009_051355_underwater_public_listings'
+    name: '20261009_051355_underwater_public_listings',
+  },
+  {
+    up: migration_20261009_070701_underwater_payment_initialization.up,
+    down: migration_20261009_070701_underwater_payment_initialization.down,
+    name: '20261009_070701_underwater_payment_initialization'
   },
 ];

@@ -42,7 +42,7 @@ export function pageMeta({ title, description, path, image, seo }: {
 export function hrefOf(r: Resolved): string | null {
   switch (r.kind) {
     case 'redirect': return r.to
-    case 'fixed': return r.source?.legacyPath || FIXED_META[r.route].path
+    case 'fixed': return canonicalPath(FIXED_META[r.route].path, r.source?.legacyPath)
     case 'product': return canonicalPath(productHref(r.doc.slug), r.doc.legacyPath)
     case 'category': return canonicalPath(categoryHref(r.doc.slug), r.doc.legacyPath)
     case 'course': return canonicalPath(courseHref(r.doc.slug), r.doc.legacyPath)
