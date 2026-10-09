@@ -47,7 +47,7 @@ Pakiet SEO od osobnego zadania: `/Volumes/Mad Dog/Archive/codex-work/client-orch
 
 ## Końcowy kandydat i bramki do wykonania przez roota
 
-**NOT RUN:** obecne 9 testów, końcowy typecheck, ponowny harness z ochroną generacji/SHA projektu, rzeczywiste domyślne CLI oraz dokładny review tego kandydata. Statyczne sprawdzenie składni helpera i `git diff --cached --check` odnotowano przy przekazaniu. Nie zgłaszamy gotowości main ani wdrożenia.
+Przy przekazaniu `6f891901b5940da75a07572e8b377fa417bb20ef` **NOT RUN** obejmowało: obecne 9 testów, końcowy typecheck, ponowny harness z ochroną generacji/SHA projektu, rzeczywiste domyślne CLI oraz dokładny review tego kandydata. Statyczne sprawdzenie składni helpera i `git diff --cached --check` odnotowano przy przekazaniu. Późniejsza próba roota zakończyła typecheck błędem; szczegóły i zakres poprawki poniżej. Nie zgłaszamy gotowości main ani wdrożenia.
 
 Własny wrapper PID 64177 był tylko w kolejce, bez wejścia do aktywnych globalnych slotów. Po weryfikacji właściciela i polecenia został anulowany; sesja 41358 zakończyła się **143**, `final-gate.log` jest pusty. Żaden etap tego gate nie wystartował. Wcześniejsze własne anulowane kolejki także nie są wynikami testów. Cudzych procesów i blokad nie zmieniono.
 
@@ -63,6 +63,14 @@ UNDERWATER_REPO="/Volumes/Mad Dog/Archive/codex-work/client-orchestrator-2026100
 Ścieżkę `--repo` należy wskazać na rzeczywisty checkout integracyjny; helper nie zakłada nazwy worktree. Jeżeli nadrzędny pipeline już obejmuje te same kontrakty i typecheck, dodać `--skip-repo-checks` i poświadczyć te etapy wynikiem pipeline. Wewnątrz już działającego wrappera `heavy` wywołać samo `python3 ...`, bez drugiego wrappera.
 
 Zależności: zamontowany Mad Dog i istniejący katalog artifactów, Git, Python 3 (tylko stdlib), Node 22.22, pnpm 10.33 oraz istniejące zależności z lockfile (Payload 3.90.2, tsx 4.23.15, TypeScript 5.9.3, esbuild, SQLite/libsql i sharp). Bez instalacji; brak serwera, portu i sekretu klienta. Helper generuje tylko syntetyczny runtime secret w pamięci. Nowy wynik zachowa w `final-gate-UUID/manifest.json` i nowym `synthetic-migration-UUID/proof.json`, z dokładnymi exit codes i SHA logów.
+
+## Korekta po nieudanej bramce integracyjnej roota
+
+Root uruchomił pełną bramkę na integration HEAD `e8e80f3d95f1cc75bfa414339cd534e0ef477dc2`. Log `/Volumes/Mad Dog/Archive/codex-work/client-orchestrator-20261009/evidence/integrate_underwater/final-gate/cms/underwater-cms-gate-aIU6Zh/build-webpack.log` potwierdza kompilację webpack w 4,2 min i następnie **FAILED TypeScript**: TS2345 w linii 35 oraz pięć TS18046 w liniach 50, 52, 61 i 67 kontraktu. Nie jest to zaliczony build ani zaliczona bramka. Log i wcześniejsze dowody pozostały zachowane.
+
+Przyczyną była postać pomocnika `reject`: TypeScript 5.9.3 nie zachowywał zawężenia `unknown` po wywołaniu arrow-const, mimo adnotacji zwrotu `never`. Zastąpiono go deklaracją `function reject(code: string): never`. Wszystkie warunki walidacji, kody błędów i zachowanie runtime pozostają identyczne. Nie dodano rzutowań, nie osłabiono strażników, nie zmieniono schematu ani innych plików aplikacji.
+
+Lekka statyczna analiza rzeczywistych deklaracji dotkniętych błędem odtworzyła przed poprawką dokładnie sześć diagnostyk z logu roota; po poprawce wykazała zero. Obejmowała tylko te deklaracje, bez grafu aplikacji, emisji, builda, serwera lub wykonania migracji. Wynik: `/Volumes/Mad Dog/Archive/codex-work/client-orchestrator-20261009/artifacts/underwater_migration/ts-narrowing-static.json` (TS 5.9.3). Pełnego typecheck/builda ani testów ponownie nie uruchamiano w worktree; końcowy wynik obecnego kandydata czeka na dokładny review, cherry-pick i ponowny pipeline roota.
 
 ## Pozostałe blokery źródła i następny krok
 

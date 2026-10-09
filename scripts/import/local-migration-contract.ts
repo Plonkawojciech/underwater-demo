@@ -13,7 +13,8 @@ export async function localPayloadConfig(input: SanitizedConfig | Promise<Saniti
   return { ...config, typescript: { ...config.typescript, autoGenerate: false },
     admin: { ...config.admin, importMap: { ...config.admin.importMap, autoGenerate: false } } }
 }
-const reject = (code: string): never => { throw new MigrationGateError(code) }
+// A declaration makes TypeScript retain narrowing after this terminating validation branch.
+function reject(code: string): never { throw new MigrationGateError(code) }
 export const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
 const digest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 const sourceVersion = (value: unknown) => typeof value === 'string' && (/^\d{1,3}(?:\.\d{1,4}){1,3}(?:[a-z0-9.+-]{0,32})?$/.test(value) || ['unknown-awaiting-current-export', 'synthetic-no-client-version'].includes(value))
