@@ -392,10 +392,13 @@ test('administrator sees saved variant changes and preserves an edit made during
 
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
+  let inventoryResponseReady!: (status: number) => void
+  const inventoryResponse = new Promise<number>(resolve => { inventoryResponseReady = resolve })
   const sent: unknown[] = []
   const holdResponse = async (route: import('@playwright/test').Route) => {
     sent.push(route.request().postDataJSON())
     const response = await route.fetch({ headers: { ...route.request().headers(), Origin: new URL(route.request().url()).origin } })
+    inventoryResponseReady(response.status())
     await gate
     await route.fulfill({ response })
   }
@@ -408,6 +411,9 @@ test('administrator sees saved variant changes and preserves an edit made during
     await stockSave.click()
     await requestSent
     await expect(stockSave).toBeDisabled()
+    // Edit while the real successful response is held, after its service write
+    // has finished; otherwise Payload's first-edit check races the DB commit.
+    expect(await inventoryResponse).toBe(200)
     const draftName = `${name} — niezapisana zmiana podczas korekty`
     await page.locator('#field-name').fill(draftName)
     release()
