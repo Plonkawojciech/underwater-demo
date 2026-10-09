@@ -43,3 +43,9 @@ Płatność online rezerwuje towar na 30 minut. Przelew i pobranie zaczynają wy
 Metoda dostawy ma rodzaj: kurier wymaga adresu, punkt odbioru wymaga ręcznie wpisanego kodu, nazwy i adresu, odbiór osobisty nie wymaga adresu. Wpisany punkt nie stanowi potwierdzenia przez przewoźnika. Cenę, możliwość pobrania, dopłatę oraz próg bezpłatnej dostawy ustawia administrator. Serwer oblicza grosze i zapisuje wybraną konfigurację z zamówieniem.
 
 Przelew trzeba potwierdzić przed testowym nadaniem. Pobranie można potwierdzić dopiero po testowym nadaniu COD. Nadane zamówienie nie wygasa ani nie zwalnia towaru przez anulowanie. Każda czynność obsługi zapisuje autora w Historii operacji. Zwrot po nadaniu, odmowa przyjęcia, zwrot pieniędzy i wysyłka częściowa wymagają osobnej procedury uzgodnionej z docelowym operatorem oraz przewoźnikiem.
+
+## Listy produktów ze starego sklepu
+
+Strona z zaznaczoną „Listą produktów” pokazuje wskazane produkty w kolejności z panelu. Pobiera ich bieżące ceny i widoczność z katalogu. Nieopublikowany produkt nie pojawia się na liście. „Pozycje bez produktu w sklepie” przechowują nazwy modeli wymagających uzgodnienia ze źródłem; strona pozwala zapytać o ich dostępność, bez deklarowania stanu.
+
+Kategoria listy i „Inne strony wyników” służą nawigacji. Pola „Wyniki od”, „Wyniki do” i „Wyników łącznie” zapisują zakres historycznej strony źródłowej; nie stanowią bieżącego licznika katalogu. Przed zmianą tych relacji sprawdź opublikowany widok oraz linki.

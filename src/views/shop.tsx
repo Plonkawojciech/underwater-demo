@@ -2,8 +2,8 @@ import Link from 'next/link'
 import { cache } from 'react'
 import type { Where } from 'payload'
 import {
-  asObject, categoryHref, categoryTree, mediaAlt, mediaUrl, productPrice, productSchema, variantPrice, withQuery,
-  type CategoryDoc, type ProductDoc, type TreeNode,
+  asObject, categoryHref, categoryTree, listingCategoryId, listingIds, listingView, mediaAlt, mediaUrl, productPrice, productSchema, variantPrice, withQuery,
+  type CategoryDoc, type PageDoc, type ProductDoc, type TreeNode,
 } from '@/lib/presentation'
 import { ProductCard } from '@/components/ProductCard'
 import { AddToCart, Gallery, ProductProvider } from '@/components/AddToCart'
@@ -160,6 +160,61 @@ export async function CategoryPage({ category, page }: { category: CategoryDoc; 
                   {kids.length ? <p>Wybierz jedną z podkategorii powyżej.</p> : null}
                 </EmptyState>}
           />
+        </div>
+      </div>
+    </div></div>
+  )
+}
+
+/**
+ * A product list from the old shop (producer filter or a further results page). Members come from the
+ * public product query, so unpublished products, current prices and enquiry-only prices follow the
+ * catalogue; the page never repeats prices or stock of its own.
+ */
+export async function ListingPage({ page: d }: { page: PageDoc }) {
+  const ids = listingIds(d)
+  const [tree, found] = await Promise.all([
+    getTree(),
+    ids.length ? publicFind<ProductDoc>('products', { where: { id: { in: ids } }, limit: ids.length, depth: 1 }) : null,
+  ])
+  const view = listingView(d, found?.docs ?? [])
+  const targets = view.links.length ? await publicFind<PageDoc>('pages', { where: { and: [{ listing: { equals: true } }, { path: { in: view.links.map(l => l.href) } }] }, limit: 50, depth: 0, select: { path: true } }) : null
+  const publishedPaths = new Set(targets?.docs.map(p => p.path) ?? [])
+  const links = view.links.filter(l => publishedPaths.has(l.href))
+  const categoryId = listingCategoryId(d)
+  const category = categoryId !== null ? tree.byId.get(categoryId) : undefined
+  const back = category ? { href: categoryHref(category.slug), label: `Zobacz kategorię ${category.name}` } : { href: SHOP, label: 'Zobacz cały sklep' }
+  return (
+    <div className="section light"><div className="wrap">
+      <Crumbs items={[
+        { label: 'Sklep', href: SHOP },
+        ...(category ? [...crumbsFor(tree, category.id), { label: category.name, href: categoryHref(category.slug) }] : []),
+        { label: d.title },
+      ]} />
+      <h1 className="h2">{d.title}</h1>
+      <div className="shop">
+        <Rail tree={tree} active={category} />
+        <div>
+          {d.body?.trim() ? <RichBody html={d.body} /> : null}
+          {view.range ? <p className="range">Wybrana część oferty. <Link href={back.href}>{back.label}</Link>.</p> : null}
+          {view.products.length ? <div className="grid">{view.products.map((p) => <ProductCard key={p.id} p={p} />)}</div> : null}
+          {view.missing.length ? (
+            <section className="related" aria-labelledby="listing-other">
+              <h2 id="listing-other" className="h3">Inne modele z tej listy</h2>
+              <p>Zapytaj nas o te modele i ich dostępność.</p>
+              <ul className="feats">{view.missing.map((title, i) => <li key={i}>{title}</li>)}</ul>
+              <p><Link className="textlink" href="/kontakt.html">Zapytaj o sprzęt</Link></p>
+            </section>
+          ) : null}
+          {!view.products.length && !view.missing.length
+            ? <EmptyState title="Brak produktów na tej liście" action={back}><p>Sprawdź całą kategorię albo zapytaj nas o sprzęt tego typu.</p></EmptyState>
+            : null}
+          {links.length ? (
+            <nav className="subcats related-links" aria-label="Inne strony wyników">
+              <ul>{links.map((l) => <li key={l.href}><Link href={l.href}>{l.label}</Link></li>)}</ul>
+            </nav>
+          ) : null}
+          {view.products.length > 0 && category && !view.range ? <p className="related-links"><Link className="textlink" href={back.href}>{back.label}</Link></p> : null}
         </div>
       </div>
     </div></div>

@@ -2,11 +2,37 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   albumSlice, canonicalPath, categoryTree, contactQuery, contentHref, enquiryHref, fingerprint, formatDateTime, formatMoney, groupByMonth,
-  isSafeSlug, isToken, jsonLd, knownStock, legacyCandidates, listCanonical, mergeCalendar, monthRange, normalizeSegments, parseConsent,
+  isSafeSlug, isToken, jsonLd, knownStock, legacyCandidates, listCanonical, listingCategoryId, listingIds, listingView, mergeCalendar, monthRange, normalizeSegments, parseConsent,
   parseMonth, parsePage, parseQuote, pathCandidates, phoneParts, priceSpan, productPrice, productSchema, quoteLineFor, safeAssetUrl,
   safeExternalUrl, safePaymentPath, searchQuery, seatsLeft, shiftMonth, STOCK_LABEL, stockState, telHref, tripView, variantPrice,
-  warsawMidnight, withQuery, type EventDoc, type ProductDoc, type SessionDoc, type TripDoc,
+  warsawMidnight, withQuery, type EventDoc, type PageDoc, type ProductDoc, type SessionDoc, type TripDoc,
 } from '../../src/lib/presentation'
+
+test('listingView: page order, unpublished members left out and counted, a range only for one page of several', () => {
+  const page: PageDoc = {
+    id: 1, title: 'Marka', path: '/1-c/marka.html', kind: 'page', listing: true,
+    listingProducts: [3, { id: 1 }, 2, 3],
+    listingMissing: [{ title: ' Nieznany model ' }, { title: '' }],
+    listingLinks: [{ label: 'Wyniki 4–6', path: '/1-c/marka/results,4-6.html' }, { label: 'Obcy', path: 'javascript:alert(1)' }, { label: ' ', path: '/x.html' }, { label: 'Powtórzone wyniki', path: '/1-c/marka/results,4-6.html' }, { label: 'Ta sama strona', path: '/1-c/marka.html' }],
+  }
+  assert.deepEqual(listingIds(page), [3, 1, 2])
+  // The public query returned 2 and 3 (1 is unpublished); 99 is not a member and never shown.
+  const view = listingView(page, [{ id: 2 }, { id: 3 }, { id: 99 }])
+  assert.deepEqual(view.products.map((p) => p.id), [3, 2])
+  assert.equal(view.hidden, 1)
+  assert.deepEqual(view.missing, ['Nieznany model'])
+  assert.deepEqual(view.links, [{ label: 'Wyniki 4–6', href: '/1-c/marka/results,4-6.html' }])
+  assert.equal(view.range, null)
+  assert.equal(listingView({ ...page, listingFrom: 1, listingTo: 3, listingTotal: 3 }, []).range, null, 'a complete single page states no count')
+  assert.equal(listingView({ ...page, listingFrom: 4, listingTo: 6, listingTotal: 9 }, []).range, 'Wyniki 4–6 z 9')
+  assert.equal(listingView({ ...page, listingFrom: 7, listingTo: 6, listingTotal: 9 }, []).range, null)
+  assert.equal(listingView({ ...page, listingProducts: null }, []).hidden, 0)
+  assert.equal(listingCategoryId({ listingCategory: { id: 4, name: 'C', slug: 'c' } }), 4)
+  assert.equal(listingCategoryId({ listingCategory: null }), null)
+  // Members are shown with ProductCard: a zero or missing price stays an enquiry.
+  assert.equal(productPrice({ priceCents: 0 }).current, null)
+  assert.equal(productPrice({}).current, null)
+})
 
 test('normalizeSegments decodes Unicode, strips .html only from the last segment, keeps the requested form', () => {
   const n = normalizeSegments(['sklep.html', encodeURIComponent('3625-maska-żółta') + '.html'])

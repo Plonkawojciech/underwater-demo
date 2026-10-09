@@ -77,7 +77,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['bootstrap', 'counts', 'dry-run', 'import'])
     parser.add_argument('commit', help='Exact reviewed and deployed 40-character commit')
-    parser.add_argument('--bundle', choices=['priority', 'public', 'public-final', 'public-recovered-final'])
+    parser.add_argument('--bundle', choices=['priority', 'public', 'public-final', 'public-recovered-final', 'public-fidelity-final'])
     args = parser.parse_args()
     if not re.fullmatch(r'[a-f0-9]{40}', args.commit): raise ValueError('An exact reviewed commit is required.')
     supplied = {}

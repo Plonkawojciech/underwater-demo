@@ -88,6 +88,15 @@ export type PageDoc = Content & {
   image?: MediaRef
   album?: number | AlbumDoc | null
   publishedAt?: string | null
+  /** Product list page of the old shop; members are product relations in page order. */
+  listing?: boolean | null
+  listingCategory?: number | CategoryDoc | null
+  listingProducts?: (number | { id: number })[] | null
+  listingMissing?: { id?: string | null; title: string; legacyPath?: string | null }[] | null
+  listingFrom?: number | null
+  listingTo?: number | null
+  listingTotal?: number | null
+  listingLinks?: { id?: string | null; label: string; path: string }[] | null
 }
 
 export type TripDoc = Content & {
@@ -296,6 +305,45 @@ export function isSafeSlug(v: unknown): v is string {
 }
 
 export const productHref = (slug: string) => `/${slug}.html`
+// ---------- product list pages ----------
+
+const refId = (v: number | { id?: number } | null | undefined) =>
+  typeof v === 'number' ? v : v && typeof v === 'object' && typeof v.id === 'number' ? v.id : null
+const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 1
+
+/** Member ids of a list page in page order, each once. */
+export function listingIds(page: Pick<PageDoc, 'listingProducts'>): number[] {
+  const ids = (page.listingProducts || []).map(refId).filter((id): id is number => id !== null && Number.isSafeInteger(id) && id > 0)
+  return [...new Set(ids)]
+}
+
+export const listingCategoryId = (page: Pick<PageDoc, 'listingCategory'>) => refId(page.listingCategory)
+
+/**
+ * What a list page shows: the members the public query returned, in page order (an unpublished or
+ * removed product is left out and only counted); names without a shop product; a results range only
+ * for one page of several; links to other results pages that are site paths.
+ */
+export function listingView<T extends { id: number }>(page: PageDoc, found: T[]) {
+  const byId = new Map(found.map((p) => [p.id, p]))
+  const ids = listingIds(page)
+  const products = ids.flatMap((id) => byId.get(id) ?? [])
+  const missing = (page.listingMissing || []).map((m) => m.title?.trim()).filter((t): t is string => !!t)
+  const { listingFrom: from, listingTo: to, listingTotal: total } = page
+  const range = isCount(from) && isCount(to) && isCount(total) && from <= to && to <= total && (from > 1 || to < total)
+    ? `Wyniki ${from}–${to} z ${total}`
+    : null
+  const seenLinks = new Set<string>()
+  const links = (page.listingLinks || []).flatMap((l) => {
+    const href = contentHref(l.path)
+    const label = l.label?.trim()
+    if (!href || !label || href === contentHref(page.path) || seenLinks.has(href)) return []
+    seenLinks.add(href)
+    return [{ label, href }]
+  })
+  return { products, hidden: ids.length - products.length, missing, range, links }
+}
+
 export const categoryHref = (slug: string) => `/${slug}.html`
 export const courseHref = (slug: string) => `/kursy-nurkowania/${slug}.html`
 

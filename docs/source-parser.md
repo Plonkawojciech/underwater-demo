@@ -7,7 +7,7 @@ Publiczny crawl nie jest zrzutem bazy. Bundle zawsze ma `source.kind = 'public-p
 ## Wejście i wyjście
 
 ```python
-convert_pages(pages, captured_at, manifest_hash) -> {bundle, media_urls, unresolved, counts}
+convert_pages(pages, captured_at, manifest_hash, captured_redirects=None) -> {bundle, media_urls, unresolved, counts}
 ```
 
 - `pages`: lista `{url, html, sha256, charset?}`. `html` to tekst strony, `sha256` to skrót oryginalnych bajtów. Strona, której `html.encode(charset)` nie daje tego skrótu, zostaje pominięta (`integrity-mismatch`).
@@ -182,3 +182,8 @@ node --test tests/source-content-parser.test.ts     # bez zależności (Node ≥
 Na rzeczywistych odszyfrowanych kopiach potwierdzono główną kolumnę aktualności, siedem publicznych opisów kadry w kontakcie, specjalizacje PADI, literalny miesiąc JEvents oraz strony nadrzędne galerii. Trzy sprawdzone foldery Phoca zachowują tytuły, odnośniki i 65 wskazanych miniatur. Różne bajty formularzy nie odrzucają identycznej treści; różne ceny, treści lub SEO pod tym samym adresem nadal są konfliktem.
 
 Źródło nadal nie jest aktualnym eksportem SQL. Brak dat publikacji, stanów magazynowych, limitów, kompletu wariantów i historii kalendarza jest rozliczany jako brak danych, bez ich wymyślania.
+
+
+Zweryfikowane rekordy HTTP z zaszyfrowanego manifestu pozwalają dopasować karty list i szczegóły wydarzeń przed scalaniem. Parser odrzuca obce adresy, konflikty i pętle; identyfikatory kategorii pobiera z jednoznacznych własnych metadanych, nigdy ze sluga. Listing korzysta z produktów katalogu, zachowuje kolejność i raportuje nierozpoznane modele.
+
+Strony bloga, Xmap i kontaktu są przenoszone według potwierdzonego DOM. Stare formularze kont oraz strony błędów pozostają wykluczone. Trzy aliasy strony głównej można odtworzyć dopiero po identycznym skrócie całej treści głównej w przechwyconych stronach; istniejąca treść ma pierwszeństwo. Tytuł i SEO sekcji kalendarza są oddzielone od generowanej listy wydarzeń.

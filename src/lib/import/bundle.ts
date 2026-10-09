@@ -6,7 +6,7 @@ export { routeKey }
 // Bump whenever validation, mapping or sanitising changes what a bundle writes.
 // The version is part of every run key and every stored entity hash, so a new
 // importer re-reconciles all records instead of trusting an older result.
-export const IMPORTER_VERSION = 4
+export const IMPORTER_VERSION = 5
 
 export const importCollections = ['categories', 'products', 'courses', 'course-sessions', 'pages', 'trips', 'albums', 'events', 'redirects'] as const
 export type ImportCollection = typeof importCollections[number]
@@ -65,7 +65,14 @@ export const fieldSpecs: Record<ImportCollection, Record<string, FieldSpec>> = {
     featured: bool, order: int(-1_000_000, 1_000_000),
   },
   'course-sessions': { title: text(300, true), startsAt: date(true), endsAt: date(), location: text(500), priceCents: cents, capacity: int(1, 100_000) },
-  pages: { title: text(500, true), path: { kind: 'path', required: true }, kind: { kind: 'select', options: ['page', 'news', 'report', 'legal'], required: true }, lead: area(5000), body: html, publishedAt: date() },
+  pages: {
+    title: text(500, true), path: { kind: 'path', required: true }, kind: { kind: 'select', options: ['page', 'news', 'report', 'legal'], required: true }, lead: area(5000), body: html, publishedAt: date(),
+    // A product list page of the old shop (category, filter or results page). Members are relations, so
+    // prices, images and visibility always come from the product records.
+    listing: bool, listingFrom: int(1, 1_000_000), listingTo: int(1, 1_000_000), listingTotal: int(1, 1_000_000),
+    listingMissing: rows({ title: text(500, true), legacyPath: { kind: 'path' } }),
+    listingLinks: rows({ label: text(100, true), path: { kind: 'path', required: true } }, 50),
+  },
   trips: { title: text(500, true), path: { kind: 'path', required: true }, location: text(500), startsAt: date(), endsAt: date(), priceCents: cents, lead: area(5000), body: html },
   albums: { title: text(500, true), path: { kind: 'path', required: true }, description: area(5000), date: date(), photos: rows({ image: media(true), caption: text(1000) }, 2000) },
   events: { title: text(500, true), startsAt: date(true), endsAt: date(), location: text(500), path: { kind: 'path' }, body: html },
@@ -78,11 +85,19 @@ export const relationSpecs: Record<ImportCollection, Record<string, RelationSpec
   products: { category: { target: 'categories', many: false, required: true }, categories: { target: 'categories', many: true }, images: { target: 'media', many: true } },
   courses: { image: { target: 'media', many: false }, gallery: { target: 'media', many: true } },
   'course-sessions': { course: { target: 'courses', many: false, required: true } },
-  pages: { image: { target: 'media', many: false }, album: { target: 'albums', many: false } },
+  pages: { image: { target: 'media', many: false }, album: { target: 'albums', many: false }, listingCategory: { target: 'categories', many: false }, listingProducts: { target: 'products', many: true } },
   trips: { image: { target: 'media', many: false }, album: { target: 'albums', many: false } },
   albums: {},
   events: { courseSession: { target: 'course-sessions', many: false }, trip: { target: 'trips', many: false } },
   redirects: {},
+}
+/**
+ * Fields added after records were first imported. An empty value (null, false, empty list) is left
+ * out of the stored content projection, so a record written by an older importer still matches its
+ * stored hash and is updated, not reported as a staff edit.
+ */
+export const addedFields: Partial<Record<ImportCollection, string[]>> = {
+  pages: ['listing', 'listingFrom', 'listingTo', 'listingTotal', 'listingMissing', 'listingLinks', 'listingCategory', 'listingProducts'],
 }
 const settingsSpecs: Record<string, FieldSpec> = {
   banner: text(500), heroTitle: text(500), heroText: area(5000), heroImage: media(), priceGuarantee: area(5000),
@@ -269,6 +284,16 @@ function prepareEntity(raw: unknown, index: number, mediaKeys: Set<string>): Pre
       if (new Set(values).size !== values.length) fail(`${where}.variants`, `duplicate variant ${name}`)
     }
     if (variants.length && data.stock != null) fail(`${where}.stock`, 'product stock is derived from variants')
+  }
+  if (collection === 'pages') {
+    const listed = ['listingFrom', 'listingTo', 'listingTotal'].map(name => data[name] as number | null)
+    const lists = (data.listingMissing as unknown[]).length || (data.listingLinks as unknown[]).length || relations.listingCategory || (relations.listingProducts as string[]).length
+    if (data.listing !== true && (lists || listed.some(value => value != null))) fail(`${where}.listing`, 'listing fields require listing: true')
+    if (data.kind !== 'page' && data.listing === true) fail(`${where}.listing`, 'a product list is an information page')
+    const [from, to, total] = listed
+    if (listed.some(value => value != null) && (listed.some(value => value == null) || from! > to! || to! > total!)) fail(`${where}.listingFrom`, 'expected a complete range from ≤ to ≤ total')
+    const own = routeKey(data.path as string)
+    for (const link of data.listingLinks as Array<{ path: string }>) if (routeKey(link.path) === own) fail(`${where}.listingLinks`, 'a results link points to the page itself')
   }
   if (collection === 'redirects' && routeKey(data.from as string) === routeKey(data.to as string)) fail(where, 'redirect points to itself')
   // The redirect hook refuses these addresses, so the importer must not start writing them.

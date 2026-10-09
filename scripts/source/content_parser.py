@@ -429,6 +429,25 @@ class Report:
 # --------------------------------------------------------------- serializer
 
 ATTRS = {'a': ('href', 'title'), 'img': ('alt', 'width', 'height'), 'td': ('colspan', 'rowspan'), 'th': ('colspan', 'rowspan', 'scope'), 'ol': ('start',)}
+# Joomla's email cloaking writes the address with a script; the captured span holds only the
+# "enable JavaScript" notice. The address is never decoded from the script or guessed: the
+# notice is replaced by a link to the site's own contact form and the place goes to review.
+# The link names the form, not an address: the organiser's address may not be on that page.
+CLOAK_ID = re.compile(r'cloak\d+')
+CLOAK_REPLACEMENT = '<a href="/kontakt.html">Formularz kontaktowy</a>'
+# Services that no longer exist; the link text stays, the dead link does not.
+DEAD_HOSTS = frozenset({'plus.google.com'})
+
+
+def is_email_cloak(node):
+    return node.tag == 'span' and bool(CLOAK_ID.fullmatch(node.get('id') or '')) and not select(node, lambda child: child.tag == 'a')
+
+
+def dead_link(value):
+    try:
+        return urlsplit((value or '').strip()).hostname in DEAD_HOSTS
+    except ValueError:
+        return False
 
 
 class Body:
@@ -536,6 +555,14 @@ class Body:
                     continue
                 if is_body_excluded(child):
                     continue
+                if is_email_cloak(child):
+                    self.rejected.append(('email-cloak-not-recovered', 'address written by a script in the source page; notice replaced by a contact form link'))
+                    out.append(CLOAK_REPLACEMENT)
+                    continue
+                if child.tag == 'a' and dead_link(child.get('href')):
+                    self.rejected.append(('dead-external-link', public_url(child.get('href') or '')))
+                    walk(child)
+                    continue
                 if child.tag == 'img':
                     out.append(self.image(child))
                     continue
@@ -599,6 +626,37 @@ def canonical_of(doc, base):
     for link in select(doc, lambda node: node.tag == 'link' and 'canonical' in (node.get('rel') or '').lower().split()):
         return site_path(link.get('href') or '', base)
     return None
+
+
+MAX_SOURCE_ID = 2_147_483_647  # the importer's vmId range
+
+
+def source_id(value):
+    """A source database ID exactly as Joomla writes it (1..2^31-1, no sign or leading zero), or None."""
+    return int(value) if isinstance(value, str) and re.fullmatch(r'[1-9]\d{0,9}', value) and int(value) <= MAX_SOURCE_ID else None
+
+
+def search_metadata(doc, base):
+    """Query fields of each of the page's own <link rel="search" href="/index.php?…">. Joomla writes the
+    shown record there (category, manufacturer, event). None when any search link points to another host,
+    carries credentials, a port or a fragment, is malformed, or repeats a query field (even with the
+    same value): such metadata names no record. Search links without a query are not metadata."""
+    found = []
+    for link in select(doc, lambda node: node.tag == 'link' and 'search' in (node.get('rel') or '').lower().split()):
+        try:
+            parts = urlsplit(urljoin(base, (link.get('href') or '').strip()))
+            port = parts.port
+            pairs = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True) if parts.query else []
+        except ValueError:
+            return None
+        if not own_url(parts, port) or parts.fragment:
+            return None
+        names = [name for name, _ in pairs]
+        if len(names) != len(set(names)):
+            return None
+        if parts.path == '/index.php' and pairs:
+            found.append(dict(pairs))
+    return found
 
 
 # --------------------------------------------------------------- categories
@@ -716,8 +774,27 @@ def listing_slug(doc, page, observations):
     return slug if slug and (slug.startswith(SHOP_ROOT + '/') or slug in observations.data) else None
 
 
-def harvest_listing(doc, page, observations):
-    # A captured category listing contributes its heading and, if shown, its numeric source ID.
+def category_search_id(doc, base):
+    """(ID, problem) from the page's own search link option=com_search&view=category&virtuemart_category_id=N.
+    A link with a manufacturer filter names a filtered list, not the category itself. Never from the slug."""
+    metadata = search_metadata(doc, base)
+    if metadata is None:
+        return None, 'a search link is foreign, malformed or repeats a query field'
+    ids = set()
+    for query in metadata:
+        if query.get('option') != 'com_search' or query.get('view') != 'category' or 'virtuemart_category_id' not in query:
+            continue
+        if query.get('virtuemart_manufacturer_id', '0') != '0':
+            continue
+        ids.add(source_id(query['virtuemart_category_id']))
+    if len(ids) > 1 or None in ids:
+        return None, 'conflicting or invalid category IDs in the search links'
+    return (ids.pop() if ids else None), None
+
+
+def harvest_listing(doc, page, observations, report):
+    # A captured category listing contributes its heading and, if shown, its numeric source ID
+    # (a hidden form input, or the category search link in the page head).
     slug = page['listing']
     if slug:
         observations.see(slug, page['path'], None, None, page['url'], has_parent=False)
@@ -731,6 +808,80 @@ def harvest_listing(doc, page, observations):
             observations.entry(slug)['vmIds'].add(int(next(iter(values))))
         elif values:
             observations.entry(slug)['vmIds'].update({'ambiguous'})
+        found, problem = category_search_id(doc, page['base'])
+        if problem:
+            report.add('category-search-id-rejected', page['url'], entity_key('category', slug), problem)
+            observations.entry(slug)['vmIds'].add('ambiguous')
+        elif found is not None:
+            observations.entry(slug)['vmIds'].add(found)
+
+
+LISTING_RANGE = re.compile(r'Wyników (\d{1,6}) - (\d{1,6}) z (\d{1,6})')
+MAX_LISTING = 500  # relation and row limit of the importer
+
+
+def listing_source_ids(doc, base):
+    """((category ID, manufacturer ID), problem) of a VirtueMart browse page from its own <link rel="search">
+    (option=com_search, view=category). A missing or zero manufacturer is None, never a default.
+    Provenance for consistency checks only; never a relation by itself."""
+    metadata = search_metadata(doc, base)
+    if metadata is None:
+        return (None, None), 'a search link is foreign, malformed or repeats a query field'
+    found = set()
+    for query in metadata:
+        if query.get('option') != 'com_search' or query.get('view') != 'category' or 'virtuemart_category_id' not in query:
+            continue
+        maker = query.get('virtuemart_manufacturer_id', '0')
+        ids = (source_id(query['virtuemart_category_id']), None if maker == '0' else source_id(maker))
+        if ids[0] is None or (maker != '0' and ids[1] is None):
+            return (None, None), 'invalid category or manufacturer ID in the search link'
+        found.add(ids)
+    if len(found) > 1:
+        return (None, None), 'conflicting search links'
+    return (found.pop() if found else (None, None)), None
+
+
+def browse_listing(doc, page, report):
+    """A VirtueMart browse page (category, manufacturer filter or a further results page): its heading,
+    the product cards inside .browse-view in page order and the 'Wyników a - b z N' range. Promotion
+    boxes and other modules outside .browse-view are never list members. None for other pages."""
+    views = outermost(select(doc, lambda node: node.tag == 'div' and node.has_class('browse-view'), prune=is_chrome))
+    headings = select(doc, lambda node: node.tag == 'h1' and node.has_class('shop-kateory-title'), prune=is_chrome)
+    if len(views) != 1 or len(headings) != 1 or not text_of(headings[0]):
+        return None
+    view = views[0]
+    cards = []
+    for container in select(view, lambda node: node.has_class('browseProductContainer')):
+        anchors = [anchor for title in select(container, lambda node: node.tag == 'h2' and node.has_class('browseProductTitle')) for anchor in select(title, lambda node: node.tag == 'a')]
+        name = text_of(anchors[0]) if len(anchors) == 1 else ''
+        if not name or text_problem(name, 500):
+            report.add('listing-card-unreadable', page['url'], None, f'{len(anchors)} title links in a product card')
+            cards.append(None)
+            continue
+        prices = {parse_pln_cents(text_of(node)) for node in select(container, lambda node: node.tag == 'span' and node.has_class('price-red'))}
+        cards.append({'title': unicodedata.normalize('NFC', name), 'path': site_path(anchors[0].get('href') or '', page['base']), 'priceCents': prices.pop() if len(prices) == 1 else None})
+    ranges = {match.groups() for node in select(view, lambda node: node.has_class('display-number')) if (match := LISTING_RANGE.fullmatch(text_of(node)))}
+    ids, problem = listing_source_ids(doc, page['base'])
+    if problem:
+        report.add('listing-source-ids-rejected', page['url'], None, problem)
+    listing = {'cards': [card for card in cards if card], 'ids': ids, 'pagination': []}
+    if len(cards) > MAX_LISTING:
+        raise Skip('field-invalid', f'{len(cards)} product cards, the importer accepts {MAX_LISTING}')
+    if len(ranges) == 1:
+        first, last, total = map(int, ranges.pop())
+        if 1 <= first <= last <= total and last - first + 1 == len(cards) and None not in cards:
+            listing['range'] = (first, last, total)
+        else:
+            report.add('listing-count-mismatch', page['url'], None, f'{len(cards)} cards, page says {first}-{last} of {total}')
+    elif cards:
+        report.add('listing-count-mismatch', page['url'], None, f'{len(cards)} cards without one readable result range')
+    for anchor in select(view, lambda node: node.tag == 'a' and any(parent.has_class('vm-pagination') for parent in node.ancestors())):
+        target = site_path(anchor.get('href') or '', page['base'])
+        label = text_value(text_of(anchor))
+        if target and label and route_key(target) != route_key(page['path']):
+            listing['pagination'].append({'path': target, 'label': label})
+    descriptions = [node for node in select(doc, lambda node: node.has_class('category_description'), prune=is_chrome)]
+    return {'title': text_of(headings[0]), 'description': descriptions[0] if len(descriptions) == 1 and text_of(descriptions[0]) else None, 'listing': listing}
 
 
 def resolve_categories(observations, report):
@@ -1035,6 +1186,164 @@ def contact_parts(doc):
     return 'Kontakt', cells[1], None
 
 
+def is_frame(node):
+    """Page frame and the left module column. Unlike is_chrome, a right-hand column counts as content:
+    the source template puts Joomla blog and contact components there without an .article-content."""
+    node_id = node.get('id') or ''
+    if node.tag in CHROME_TAGS or any(CHROME_CLASS.match(name) for name in node.classes) or CHROME_ID.match(node_id):
+        return True
+    return any(is_sidebar_name(name) and re.search(r'left', name, re.I) for name in node.classes)
+
+
+def in_content_area(node):
+    return any(parent.has_class('portal-real-content') for parent in node.ancestors())
+
+
+def component_root(doc, name):
+    roots = outermost(select(doc, lambda node: node.tag == 'div' and node.has_class(name) and in_content_area(node), prune=is_frame))
+    return roots[0] if len(roots) == 1 else None
+
+
+def breadcrumb_label(doc):
+    """Literal current-page item that closes the page's only breadcrumb trail in the content column
+    ('Jesteś tutaj: Strona główna › Mapa serwisu'): a plain span after the last link. None when the
+    trail is missing or repeated, or ends in a link or loose text."""
+    trails = outermost(select(doc, lambda node: (node.has_class('breadcrumbs') or node.has_class('breadcrumb')) and in_content_area(node)))
+    if len(trails) != 1:
+        return None
+    items = trails[0].elements()
+    last = items[-1] if items else None
+    if last is None or last.tag != 'span' or last.has_class('showHere') or select(last, lambda node: node.tag == 'a'):
+        return None
+    position = next(index for index, child in enumerate(trails[0].children) if child is last)
+    if any(not isinstance(child, str) or child.strip() for child in trails[0].children[position + 1:]):
+        return None
+    return unicodedata.normalize('NFC', text_of(last)) or None
+
+
+def blog_parts(doc):
+    """Joomla category blog (div.blog): title from h2 > span.subheading-category or the blog's own h1;
+    body from the category description, the subcategory links and any intro items. A blog page without
+    a heading (a further results page that only holds pagination) takes the literal current breadcrumb
+    item, else the SEO title. The 'Liczba artykułów' counters are a live database count, not content."""
+    blog = component_root(doc, 'blog')
+    if blog is None:
+        return None
+    subheadings = [node for node in blog.elements() if node.tag == 'h2' and select(node, lambda child: child.has_class('subheading-category'))]
+    headings = [node for node in blog.elements() if node.tag == 'h1']
+    title_node = subheadings[0] if len(subheadings) == 1 else headings[0] if not subheadings and len(headings) == 1 else None
+    if title_node is not None and text_of(title_node):
+        title, origin = text_of(title_node), 'heading'
+    elif subheadings or headings:
+        raise Skip('blog-missing-title', f'{len(subheadings)} h2 > span.subheading-category and {len(headings)} h1 headings in the blog')
+    elif label := breadcrumb_label(doc):
+        title, origin = label, 'breadcrumb'
+    elif label := seo_of(doc).get('title'):
+        title, origin = label, 'seo'
+    else:
+        raise Skip('blog-missing-title', 'no heading in the blog, no current breadcrumb item and no SEO title')
+    skip = ([title_node] if title_node is not None else []) + select(blog, lambda node: node.tag == 'dl' and any(parent.has_class('cat-children') for parent in node.ancestors()))
+    for children in select(blog, lambda node: node.has_class('cat-children')):
+        if not select(children, lambda node: node.tag == 'li'):
+            skip.append(children)
+    return {'title': title, 'origin': origin, 'root': blog, 'skip': skip}
+
+
+MAX_NAVIGATION = 50
+
+
+def blog_navigation(blog, page):
+    """HTML list of the blog's own pagination links (literal labels, one per target address, not the
+    page itself), for a blog page whose only content is that pagination. '' when there is none."""
+    body, items, seen = Body(page['base']), [], {route_key(page['path'])}
+    for holder in outermost(select(blog, lambda node: node.has_class('pagination'))):
+        for anchor in select(holder, lambda node: node.tag == 'a'):
+            path = site_path(anchor.get('href') or '', page['base'])
+            href, _ = body.href(anchor.get('href'))
+            label = text_value(text_of(anchor))
+            if not path or not href or not href.startswith('/') or not label or route_key(path) in seen or text_problem(label, 500):
+                continue
+            seen.add(route_key(path))
+            items.append(f'<li><a href="{html_lib.escape(href)}">{html_lib.escape(label, quote=False)}</a></li>')
+    return f'<ul>{"".join(items[:MAX_NAVIGATION])}</ul>' if items else ''
+
+
+def section_intro(blog, page):
+    """(intro nodes, teaser paths) of a source blog at a fixed application section: the category
+    description is the section's introduction; article teasers, subcategory and 'more' lists repeat
+    the list the section renders from imported records, so they are only checked, not copied."""
+    root = blog['root']
+    intro = outermost(select(root, lambda node: node.has_class('category-desc')))
+    teasers = []
+    for anchor in select(root, lambda node: node.tag == 'a', prune=lambda node: node.has_class('category-desc') or node.has_class('pagination') or node in blog['skip']):
+        path = site_path(anchor.get('href') or '', page['base'])
+        if path and path not in teasers and route_key(path) != route_key(page['path']):
+            teasers.append(path)
+    return intro, teasers
+
+
+def sitemap_parts(doc):
+    """Xmap sitemap (#xmap): its nested menu lists are the content. Title: an own h1, otherwise the
+    literal current breadcrumb item. Empty menu titles and the 'Powered by Xmap' credit are dropped;
+    breadcrumbs, menus and modules around it are page chrome."""
+    maps = outermost(select(doc, lambda node: node.get('id') == 'xmap' and in_content_area(node), prune=is_frame))
+    if len(maps) != 1:
+        return None
+    root = maps[0]
+    headings = select(root, lambda node: node.tag == 'h1')
+    if len(headings) == 1 and text_of(headings[0]):
+        title, skip = text_of(headings[0]), [headings[0]]
+    elif headings:
+        raise Skip('sitemap-missing-title', f'{len(headings)} h1 headings in #xmap')
+    else:
+        title, skip = breadcrumb_label(doc), []
+        if not title:
+            raise Skip('sitemap-missing-title', 'no h1 in #xmap and no current breadcrumb item')
+    skip += select(root, lambda node: node.has_class('muted') or (node.tag in ('div', 'h2', 'h3') and not text_of(node) and not select(node, lambda child: child.tag in ('a', 'img'))))
+    return title, root, skip
+
+
+# com_users forms (password reset, username reminder, registration, login). Accounts, passwords and
+# their reset codes live in the source database; the old forms, actions and tokens are never copied.
+ACCOUNT_COMPONENTS = ('reset', 'remind', 'registration', 'login')
+
+
+def legacy_account(doc, page):
+    """A Joomla com_users form or the VirtueMart customer account (search link view=user)."""
+    if select(doc, lambda node: node.tag == 'div' and any(node.has_class(name) for name in ACCOUNT_COMPONENTS) and in_content_area(node), prune=is_frame):
+        return True
+    return any(query.get('option') == 'com_search' and query.get('view') == 'user' for query in search_metadata(doc, page['base']) or [])
+
+
+def source_error_response(doc):
+    """Joomla error output instead of a page: a bold 'jos-Error' line and a PHP stack trace, no template."""
+    return bool(select(doc, lambda node: node.tag == 'b' and text_of(node) == 'jos-Error')) and not select(doc, lambda node: node.has_class('portal-real-content'))
+
+
+CONTACT_PARTS = ('contact-position', 'contact-address', 'contact-contactinfo', 'contact-misc')
+# Joomla's sample text for the contact "misc" field (with its original spelling).
+CONTACT_PLACEHOLDERS = frozenset({'Miscellanous info', 'Miscellaneous info'})
+CONTACT_FORM_LINK = '<p><a href="/kontakt.html">Formularz kontaktowy</a></p>'
+
+
+def joomla_contact_parts(doc, report, url):
+    """Joomla com_contact person page: the name and its public detail blocks only. The old form,
+    its panel headings and slider togglers are never copied; the site's own contact form is linked."""
+    contact = component_root(doc, 'contact')
+    if contact is None:
+        return None
+    names = select(contact, lambda node: node.has_class('contact-name'))
+    if len(names) != 1 or not text_of(names[0]):
+        return None
+    parts = []
+    for node in outermost(select(contact, lambda child: any(child.has_class(name) for name in CONTACT_PARTS))):
+        if node.has_class('contact-misc') and text_of(node) in CONTACT_PLACEHOLDERS:
+            report.add('contact-placeholder-omitted', url, None, text_of(node))
+            continue
+        parts.append(node)
+    return text_of(names[0]), parts
+
+
 def footer_settings(doc):
     """Public company block observed in the source homepage; no configuration files."""
     blocks = select(doc, lambda node: node.has_class('custombox4'))
@@ -1166,6 +1475,183 @@ def calendar_event_day(anchor, cell, page):
     return selected if offset == 7 else None
 
 
+def warsaw_instant(year, month, day, hour, minute):
+    """UTC ISO instant of an explicit Warsaw wall-clock time. ValueError for a date or time that does
+    not exist, and for a local time that is ambiguous or skipped at a DST change: never normalised."""
+    local = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo(SITE_ZONE))
+    if local.utcoffset() != local.replace(fold=1).utcoffset():
+        raise ValueError('ambiguous local time')
+    if local.astimezone(timezone.utc).astimezone(local.tzinfo).replace(tzinfo=None) != local.replace(tzinfo=None):
+        raise ValueError('nonexistent local time')
+    return local.astimezone(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+
+# JEvents detail header, as the source prints it (Polish month names in the nominative):
+#   'Od Piątek, 2. październik 2026 - 16:00' / 'Do Niedziela, 4. październik 2026 - 21:00'
+#   'Środa, 26. sierpień 2026, 19:00 - 20:00'      'Piątek, 24. kwiecień 2026, 09:00'
+EVENT_DETAIL_PATH = re.compile(r'/kalendarz/eventdetail/(\d{1,10})/-/[^/]+\.html')
+PL_MONTHS = {name: index for index, name in enumerate(('styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec', 'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'), 1)}
+PL_WEEKDAYS = ('Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela')
+EVENT_DAY = r'(\w+), (\d{1,2})\. (\w+) (\d{4})'
+EVENT_CLOCK = r'(\d{2}):(\d{2})'
+EVENT_FORMS = (
+    ('range', re.compile(rf'Od {EVENT_DAY} - {EVENT_CLOCK}\nDo {EVENT_DAY} - {EVENT_CLOCK}')),
+    ('same-day', re.compile(rf'{EVENT_DAY}, {EVENT_CLOCK} - {EVENT_CLOCK}')),
+    ('start', re.compile(rf'{EVENT_DAY}, {EVENT_CLOCK}')),
+)
+
+
+class EventFallback(Exception):
+    def __init__(self, code, detail=''):
+        super().__init__(code)
+        self.code, self.detail = code, detail
+
+
+def event_lines(span):
+    """Text lines of the date span; <br> separates them, whitespace runs collapse within a line."""
+    parts = []
+    for child in span.children:
+        parts.append(child if isinstance(child, str) else '\n' if child.tag == 'br' else text_of(child))
+    lines = [re.sub(r'\s+', ' ', line).strip() for line in unicodedata.normalize('NFC', ''.join(parts)).split('\n')]
+    return [line for line in lines if line]
+
+
+def event_instant(weekday, day, month, year, hour, minute, literal):
+    if month not in PL_MONTHS:
+        raise EventFallback('event-date-month-unknown', literal)
+    try:
+        weekday_index = datetime(int(year), PL_MONTHS[month], int(day)).weekday()
+    except ValueError:
+        raise EventFallback('event-date-invalid', literal) from None
+    if PL_WEEKDAYS[weekday_index] != weekday:
+        raise EventFallback('event-date-weekday-mismatch', f'{literal} ({int(day)}.{PL_MONTHS[month]:02d}.{year} is {PL_WEEKDAYS[weekday_index]})')
+    try:
+        return warsaw_instant(int(year), PL_MONTHS[month], int(day), int(hour), int(minute))
+    except ValueError as error:
+        raise EventFallback('event-date-invalid', f'{literal}: {error}') from None
+    except ZoneInfoNotFoundError:
+        raise EventFallback('event-date-invalid', f'time zone {SITE_ZONE} is not available') from None
+
+
+def event_dates(lines):
+    """(startsAt, endsAt or None) from the exact header text; the year is always the printed one."""
+    literal = ' / '.join(lines)
+    text = '\n'.join(lines)
+    for form, pattern in EVENT_FORMS:
+        match = pattern.fullmatch(text)
+        if not match:
+            continue
+        values = match.groups()
+        if form == 'range':
+            starts = event_instant(*values[:6], literal)
+            ends = event_instant(*values[6:], literal)
+        elif form == 'same-day':
+            starts = event_instant(*values[:6], literal)
+            ends = event_instant(*values[:4], *values[6:], literal)
+        else:
+            starts, ends = event_instant(*values, literal), None
+        if ends is not None and ends < starts:
+            raise EventFallback('event-date-end-before-start', literal)
+        return starts, ends
+    if any(re.fullmatch(rf'(?:(?:Od|Do) )?{EVENT_DAY}', line) for line in lines):
+        # An all-day entry: no time is invented for it.
+        raise EventFallback('event-date-missing-time', literal)
+    raise EventFallback('event-date-unparsed', literal or 'empty date line')
+
+
+def event_evid(doc, base):
+    """evid=<ID> values of the page's own <link rel="search"> (JEvents writes the shown event there); None
+    when the search metadata is rejected (another host, a repeated query field). Several values conflict."""
+    metadata = search_metadata(doc, base)
+    if metadata is None:
+        return None
+    return {query['evid'] for query in metadata if 'evid' in query}
+
+
+def event_detail(doc, page, report):
+    """A JEvents event detail page (#jevents_body.jeventpage with its 'Wróć' link) becomes an event when
+    its ID and date header are exact; anything else keeps its literal text as a page. Returns None for
+    other pages."""
+    containers = select(doc, lambda node: node.get('id') == 'jevents_body' and node.has_class('jeventpage'))
+    if len(containers) != 1:
+        return None
+    container = containers[0]
+    backs = [node for node in select(container, lambda node: node.tag == 'p') if select(node, lambda child: child.tag == 'a' and child.has_class('jev_back'))]
+    if not backs:
+        if page['path'] != '/kalendarz.html':
+            report.add('jevents-not-event-detail', page['url'], None, 'informational: a JEvents page without an event detail')
+        return None
+    seo = seo_of(doc)
+    elements = container.elements()
+    header = elements[0] if elements and elements[0].tag == 'table' else None
+    cells, content = [], None
+    if header is not None:
+        rows = select(header, lambda node: node.tag == 'tr', prune=lambda node: node.tag == 'table' and node is not header)
+        cells = [node for node in rows[0].elements() if node.tag == 'td'] if len(rows) == 1 else []
+        following = elements[1] if len(elements) > 1 else None
+        content = following if following is not None and following.tag == 'div' else None
+    headings = select(cells[0], lambda node: node.tag == 'h1') if len(cells) == 2 else []
+    title = text_of(headings[0]) if len(headings) == 1 else seo.get('title', '')
+    if not title:
+        raise Skip('missing-title', 'event detail without an h1 or <title>')
+    path_id = EVENT_DETAIL_PATH.fullmatch(page['path'])
+    key = entity_key('page', page['path'].lstrip('/'))
+    base = {'title': title, 'path': page['path'], 'published': True, 'legacyPath': page['path']}
+    if seo:
+        base['seo'] = seo
+
+    def page_form():
+        """The whole header text stays literal in the body; nothing is turned into a date."""
+        literal = Body(page['base'], backs)
+        if len(cells) == 2 and content is not None:
+            html = literal.render(cells[1]) + literal.render(content)
+        else:
+            html = literal.render(container)
+        return {'collection': 'pages', 'key': key, 'data': {**base, 'kind': 'page', 'body': html}, 'media': [(ref, alt, 'body') for ref, alt in literal.media], 'rejected': literal.rejected}
+
+    def fallback(code, detail):
+        report.add(code, page['url'], key, detail)
+        return page_form()
+
+    if len(cells) != 2 or len(headings) != 1 or content is None:
+        return fallback('event-header-unrecognized', 'expected a one-row header table (title, date) followed by the event text')
+    evids = event_evid(doc, page['base'])
+    if not path_id or source_id(path_id.group(1)) is None or evids != {path_id.group(1)}:
+        shown = 'rejected search metadata' if evids is None else ', '.join(sorted(evids)) or 'missing'
+        return fallback('event-id-mismatch', f'path ID {path_id.group(1) if path_id else "missing"}, page evid {shown}')
+    paragraphs = [node for node in cells[1].elements() if node.tag == 'p']
+    spans = [node for node in paragraphs[0].elements() if node.tag == 'span'] if len(paragraphs) == 1 else []
+    if not spans:
+        return fallback('event-header-unrecognized', 'no date in the header')
+    try:
+        starts, ends = event_dates(event_lines(spans[0]))
+    except EventFallback as problem:
+        return fallback(problem.code, problem.detail)
+    body = Body(page['base'])
+    html = body.render(content)
+    data = {**base, 'startsAt': starts}
+    if ends is not None:
+        data['endsAt'] = ends
+    if len(spans) == 3:
+        location = text_of(spans[1])
+        if location and not text_problem(location, 500):
+            data['location'] = location
+        elif location:
+            report.add('field-omitted', page['url'], key, 'event location: ' + text_problem(location, 500))
+        contact = body.render(spans[2])
+        if contact:
+            html = f'<p>{contact}</p>' + html
+    else:
+        # Without the exact date, place and contact spans the whole header text stays in the body.
+        header_body = Body(page['base'])
+        html = header_body.render(cells[1]) + html
+        body.media = header_body.media + body.media
+        body.rejected += header_body.rejected
+    data['body'] = html
+    # The page form is used only if the month calendar lists this event at another time.
+    return {'collection': 'events', 'key': 'jevents-detail:' + path_id.group(1), 'data': data, 'media': [(ref, alt, 'body') for ref, alt in body.media], 'rejected': body.rejected, 'fallback': page_form()}
+
+
 def calendar_events(doc, page, report):
     """Literal JEvents month cells: one explicit day URL and HH:MM event text.
     Dates come from the day link, never the page capture clock or guessed year.
@@ -1190,13 +1676,7 @@ def calendar_events(doc, page, report):
             report.add('calendar-event-unresolved', page['url'], None, 'event title exceeds the importer limits')
             continue
         try:
-            local = datetime(year, month, day, int(clock.group(1)), int(clock.group(2)), tzinfo=ZoneInfo(SITE_ZONE))
-            if local.utcoffset() != local.replace(fold=1).utcoffset():
-                raise ValueError('ambiguous local time')
-            # Reject a nonexistent local time instead of normalising a DST gap.
-            if local.astimezone(timezone.utc).astimezone(local.tzinfo).replace(tzinfo=None) != local.replace(tzinfo=None):
-                raise ValueError('nonexistent local time')
-            starts = local.astimezone(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+            starts = warsaw_instant(year, month, day, int(clock.group(1)), int(clock.group(2)))
         except (ValueError, ZoneInfoNotFoundError):
             report.add('calendar-event-unresolved', page['url'], None, 'invalid explicit source date/time')
             continue
@@ -1223,15 +1703,57 @@ def analyze_content(doc, page, report):
                 data['seo'] = seo
             return {'collection': 'albums', 'key': key, 'data': data, 'media': [(ref, caption, 'photos') for ref, caption in photos]}
     contact = contact_parts(doc) if '/'.join(segments) == 'kontakt' else None
-    title, root, title_node = folder if folder is not None else contact if contact is not None else article_parts(doc)
-    body = Body(page['base'], [title_node] if title_node is not None else [])
-    html = body.render(root)
+    blog = person = sitemap = intro = article = None
+    teasers = []
+    if folder is None and contact is None and not section:
+        blog = blog_parts(doc)
+        person = joomla_contact_parts(doc, report, page['url']) if blog is None else None
+        sitemap = sitemap_parts(doc) if blog is None and person is None else None
+    elif folder is None and contact is None:
+        # A fixed section shows its own list. A source article there stays as before; a source blog
+        # gives only its literal title, SEO and introduction, never a copy of the list above that list.
+        try:
+            article = article_parts(doc)
+        except Skip:
+            intro = blog_parts(doc)
+            if intro is None:
+                raise
+    if blog is not None:
+        title = blog['title']
+        body = Body(page['base'], blog['skip'])
+        html = body.render(blog['root'])
+        if not text_of(parse_html(html)) and not body.media:
+            html = blog_navigation(blog['root'], page)
+            if html:
+                report.add('blog-navigation-only', page['url'], None, 'informational: the source blog page holds only pagination; its own links are kept, nothing else is added')
+    elif intro is not None:
+        title = intro['title']
+        nodes, teasers = section_intro(intro, page)
+        body = Body(page['base'], intro['skip'])
+        html = '\n'.join(filter(None, (body.render(node) for node in nodes)))
+    elif person is not None:
+        title, parts = person
+        body = Body(page['base'])
+        html = '\n'.join(filter(None, (body.render(part) for part in parts)))
+        html = (html + '\n' if html else '') + CONTACT_FORM_LINK
+    elif sitemap is not None:
+        title, root, skip = sitemap
+        body = Body(page['base'], skip)
+        html = body.render(root)
+    else:
+        title, root, title_node = folder if folder is not None else contact if contact is not None else article if article is not None else article_parts(doc)
+        body = Body(page['base'], [title_node] if title_node is not None else [])
+        html = body.render(root)
     if not text_of(parse_html(html)) and not body.media:
-        raise Skip('empty-main-content', title)
+        if intro is None:
+            raise Skip('empty-main-content', title)
+        html = ''  # the section record still carries the literal title and SEO
+    # A Joomla blog, contact component or sitemap is a page whatever its address looks like.
+    forced_page = blog is not None or person is not None or sitemap is not None
     # '/kursy-nurkowania/kursy-nurkowania-<…>.html' is a course overview on the source site, not a course.
     landing = segments[0] == 'kursy-nurkowania' and len(segments) == 2 and segments[1].startswith('kursy-nurkowania-')
     course_root = segments[0] in {'kursy-nurkowania', 'kursy-specjalizacji-nurkowych-padi'}
-    if course_root and len(segments) == 2 and is_html and not section and not landing:
+    if course_root and len(segments) == 2 and is_html and not section and not landing and not forced_page:
         key = entity_key('course', segments[1])
         # Only an explicit organisation in the source title is authoritative.
         organisations = [name for name in ('PADI', 'IANTD', 'TDI/SDI', 'Freediving') if re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', title, re.I)]
@@ -1242,23 +1764,37 @@ def analyze_content(doc, page, report):
             data['nextDate'] = next_date
         elif reason:
             report.add('course-date-not-imported', page['url'], key, reason + '; the sentence stays in the body')
-    elif segments[0] == 'wyprawy-nurkowe' and len(segments) == 2 and is_html:
+    elif segments[0] == 'wyprawy-nurkowe' and len(segments) == 2 and is_html and not forced_page:
         key = entity_key('trip', page['path'].lstrip('/'))
         data = {'title': title, 'path': page['path'], 'body': html, 'published': True, 'legacyPath': page['path']}
         collection = 'trips'
     else:
         key = entity_key('page', page['path'].lstrip('/'))
         data = {'title': title, 'path': page['path'], 'kind': page_kind(segments), 'body': html, 'published': True, 'legacyPath': page['path']}
+        if not html:
+            del data['body']
         collection = 'pages'
         if section:
             report.add('source-section-content', page['url'], key, f'informational: the application section at {page["path"]} uses this record for its title, SEO and introduction')
+            if teasers:
+                report.add('source-section-teasers-omitted', page['url'], key, f'informational: {len(teasers)} list links of the source blog are not copied; the section lists imported records')
         elif landing:
             report.add('course-landing-page', page['url'], key, 'informational: course overview imported as a page, not as a course')
+        elif blog is not None:
+            report.add('blog-imported-as-page', page['url'], key, 'informational: category blog imported as a page; its article counters are not copied')
+        elif sitemap is not None:
+            report.add('sitemap-imported-as-page', page['url'], key, 'informational: the source sitemap lists are kept as the page body')
     if seo:
         data['seo'] = seo
+    origin = (blog or intro or {}).get('origin')
+    if origin in ('breadcrumb', 'seo'):
+        report.add(f'blog-title-from-{origin}', page['url'], key, f'informational: the source blog has no heading; the title is its literal {origin} label')
     for reason, src in body.rejected:
         report.add(reason, page['url'], key, src)
-    return {'collection': collection, 'key': key, 'data': data, 'media': [(ref, alt, 'body') for ref, alt in body.media]}
+    candidate = {'collection': collection, 'key': key, 'data': data, 'media': [(ref, alt, 'body') for ref, alt in body.media]}
+    if teasers:
+        candidate['sectionLinks'] = teasers
+    return candidate
 
 
 # ------------------------------------------------------------------ pipeline
@@ -1306,7 +1842,7 @@ def prepare_pages(pages, report):
 
 # Field limits of src/lib/import/bundle.ts fieldSpecs, in JavaScript string length.
 TITLE_LIMITS = {'categories': ('name', 300), 'products': ('name', 300), 'courses': ('name', 300),
-                'pages': ('title', 500), 'trips': ('title', 500), 'albums': ('title', 500)}
+                'pages': ('title', 500), 'trips': ('title', 500), 'albums': ('title', 500), 'events': ('title', 500)}
 ROW_LIMITS = {'images': 500, 'photos': 2000}
 
 
@@ -1355,23 +1891,89 @@ def check_fields(candidate, report, url):
     candidate['media'] = media
 
 
-def classify(doc, page, report):
+def analyze_listing(doc, page, report, browse):
+    """A browse page becomes a page with a controlled product list. Members are resolved later against
+    imported products by exact address; the card prices, names and filter never change a product."""
+    key = entity_key('page', page['path'].lstrip('/'))
+    data = {'title': browse['title'], 'path': page['path'], 'kind': 'page', 'listing': True, 'published': True, 'legacyPath': page['path']}
+    media = []
+    if browse['description'] is not None:
+        body = Body(page['base'])
+        html = body.render(browse['description'])
+        if text_of(parse_html(html)) or body.media:
+            data['body'] = html
+            media = [(ref, alt, 'body') for ref, alt in body.media]
+        for reason, src in body.rejected:
+            report.add(reason, page['url'], key, src)
+    if 'range' in browse['listing']:
+        data['listingFrom'], data['listingTo'], data['listingTotal'] = browse['listing']['range']
+    seo = seo_of(doc)
+    if seo:
+        data['seo'] = seo
+    return {'collection': 'pages', 'key': key, 'data': data, 'media': media, 'listing': browse['listing']}
+
+
+def classify(doc, page, report, categories=frozenset()):
     if page['path'] in HOME_PATHS:
         report.skip('home-landing', page['url'], review=False)
         return None
+    if source_error_response(doc):
+        # The response text is a server path stack trace: never content, never quoted in the report.
+        report.skip('source-error-response', page['url'], 'Joomla error output instead of a page; nothing imported')
+        return None
+    calendar_candidate = None
+    # The fixed calendar renders its current event records. Keep the source section's
+    # literal heading and SEO, without importing its old month table or navigation.
+    if page['path'] == '/kalendarz.html':
+        headers = select(doc, lambda n: n.get('id') == 'jevents_header' and n.has_class('jeventpage'))
+        headings = select(headers[0], lambda n: n.tag == 'h2') if len(headers) == 1 else []
+        if len(headings) == 1 and text_of(headings[0]):
+            data = {'title': text_of(headings[0]), 'path': page['path'], 'kind': 'page', 'published': True, 'legacyPath': page['path']}
+            seo = seo_of(doc)
+            if seo:
+                data['seo'] = seo
+            calendar_candidate = {'collection': 'pages', 'key': entity_key('page', page['path'].lstrip('/')), 'data': data, 'media': []}
     try:
-        if product_containers(doc):
+        if calendar_candidate is not None:
+            candidate = calendar_candidate
+            report.add('source-section-content', page['url'], candidate['key'], 'literal calendar title and SEO; current events are rendered separately')
+        elif product_containers(doc):
             candidate = analyze_product(doc, page, report)
             seo = seo_of(doc)
             if seo:
                 candidate['data']['seo'] = seo
             candidate['canonical'] = canonical_of(doc, page['base'])
-        elif page['listing'] or stem_of(page['path']) == SHOP_ROOT:
+        elif stem_of(page['path']) == SHOP_ROOT or page['listing'] in categories:
+            # The category record owns this address and lists its products from the catalogue.
             report.skip('category-listing', page['url'], review=False)
+            return None
+        elif legacy_account(doc, page):
+            report.skip('legacy-account-requires-source-database', page['url'], 'customer account, login or password form of the old site; accounts need the source database and a separate decision, the form is not copied')
+            return None
+        elif (event := event_detail(doc, page, report)) is not None:
+            candidate = event
+            for reason, src in candidate.pop('rejected'):
+                report.add(reason, page['url'], candidate['key'], src)
+        elif (browse := browse_listing(doc, page, report)) is not None:
+            candidate = analyze_listing(doc, page, report, browse)
+        elif page['listing']:
+            report.skip('category-listing', page['url'], review=False)
+            return None
+        elif stem_of(page['path']).split('/')[0] == 'list-all-products':
+            # Shop chrome only (menus, cart, promotions): the source served no product list here, so
+            # this is a missing shop component, not an empty manufacturer inventory.
+            cards = len(select(doc, lambda node: node.has_class('browseProductContainer'), prune=is_chrome))
+            report.skip('shop-component-missing', page['url'], f'VirtueMart manufacturer address without one browse view and list heading ({cards} product cards); no empty list is created')
             return None
         else:
             candidate = analyze_content(doc, page, report)
         check_fields(candidate, report, page['url'])
+        if candidate.get('fallback'):
+            try:
+                check_fields(candidate['fallback'], report, page['url'])
+            except Skip as skip:
+                report.add(skip.code, page['url'], candidate['fallback']['key'], 'page form of the event: ' + skip.detail)
+                del candidate['fallback']
     except Skip as skip:
         report.skip(skip.code, page['url'], skip.detail)
         return None
@@ -1381,7 +1983,7 @@ def classify(doc, page, report):
 
 def fingerprint(candidate):
     data = {name: value for name, value in candidate['data'].items() if name not in ('slug', 'legacyPath', 'path', 'seo')}
-    return stable_hash({'data': data, 'category': candidate.get('category'), 'media': [(ref['path'], alt, field) for ref, alt, field in candidate['media']]})
+    return stable_hash({'data': data, 'category': candidate.get('category'), 'listing': candidate.get('listing'), 'media': [(ref['path'], alt, field) for ref, alt, field in candidate['media']]})
 
 
 def merge_candidates(candidates, report):
@@ -1443,7 +2045,212 @@ def claims_of(entity):
     return claims
 
 
-def convert_pages(pages, captured_at, manifest_hash):
+def merge_event_details(entities, calendar_rows, merged, report, resolve=route_key):
+    """One record per source event. An event page whose address and start equal one month-calendar
+    entry fills that entry (its import key stays, so no record is orphaned); a different start keeps
+    the calendar entry and imports the event page as a page. resolve() maps a month-cell address to
+    the route of the event page it reaches by a captured HTTP redirect or a second capture of the same
+    event. A course term is linked only for the exact course name and start; then the course's own
+    fallback calendar entry is not added. Returns {old entity id: new entity id} for records that moved."""
+    moved, rows_by_route, courses, linked = {}, {}, {}, {}
+    for event in calendar_rows:
+        if event['href'] and 'events:' + event['key'] in entities:
+            rows_by_route.setdefault(resolve(event['href']), []).append('events:' + event['key'])
+    for candidate in merged:
+        if candidate['collection'] == 'courses' and candidate['data'].get('nextDate'):
+            courses.setdefault(unicodedata.normalize('NFC', candidate['data']['name']), []).append(candidate)
+    for identifier, entity in entities.items():
+        if entity['collection'] == 'events' and entity['relations'].get('courseSession'):
+            linked.setdefault(entity['relations']['courseSession'], identifier)
+    details = sorted(identifier for identifier, entity in entities.items() if entity['collection'] == 'events' and entity['key'].startswith('jevents-detail:'))
+    for identifier in details:
+        detail = entities.pop(identifier)
+        rows = rows_by_route.get(route_key(detail['data']['path']), [])
+        if rows:
+            same = [row for row in rows if entities[row]['data']['startsAt'] == detail['data']['startsAt']]
+            if len(rows) != 1 or len(same) != 1:
+                times = ', '.join(sorted(entities[row]['data']['startsAt'] for row in rows))
+                report.add('calendar-detail-conflict', detail['url'], detail['key'], f'event page starts {detail["data"]["startsAt"]}, month calendar {times}; the calendar entry stays and the event page is kept as a page')
+                fallback = detail.get('fallback')
+                if fallback:
+                    entities['pages:' + fallback['key']] = {'collection': 'pages', 'key': fallback['key'], 'data': fallback['data'], 'relations': {}, 'media': fallback['media'], 'url': detail['url']}
+                    for reason, src in fallback['rejected']:
+                        report.add(reason, detail['url'], fallback['key'], src)
+                    moved[identifier] = 'pages:' + fallback['key']
+                continue
+            target = same[0]
+            event = entities[target]
+            if event['data']['title'] != detail['data']['title']:
+                report.add('calendar-title-differs', detail['url'], event['key'], f'informational: month calendar {event["data"]["title"]!r}, event page {detail["data"]["title"]!r}; the event page title is used')
+            event.update({'data': detail['data'], 'media': detail['media'], 'url': detail['url']})
+            moved[identifier] = target
+        else:
+            target = identifier
+            entities[target] = event = detail
+        matches = courses.get(unicodedata.normalize('NFC', event['data']['title']), [])
+        exact = [course for course in matches if course['data']['nextDate'] == event['data']['startsAt']]
+        if len(exact) != 1:
+            if matches:
+                report.add('event-course-not-linked', event['url'], event['key'], 'informational: same name as a course, but not exactly one course starting at this time')
+            continue
+        course = exact[0]
+        term = hashlib.sha256((course['key'] + '\0' + course['data']['nextDate']).encode()).hexdigest()
+        session = 'course-sessions:public-course-start:' + term
+        holder = linked.get(session)
+        if holder is not None and holder != target and not holder.startswith('events:public-course-calendar:'):
+            report.add('event-course-not-linked', event['url'], event['key'], 'informational: the course term is already shown by another calendar entry')
+            continue
+        event['relations']['courseSession'] = session
+        linked[session] = target
+        entities.pop('events:public-course-calendar:' + term, None)
+    return moved
+
+
+def resolve_listings(entities, report, follow=lambda route: route):
+    """Fills listing pages: members are products found by the exact card address (the product's own
+    address, a second address of the same product, or the final address of a captured HTTP redirect),
+    in page order; other cards stay as names. The category is the longest imported category in the
+    page's address, and only when both pages show the same source category ID; results pages link
+    only to captured pages of the same filter."""
+    products, categories, listings = {}, {}, {}
+    for identifier, entity in entities.items():
+        if entity['collection'] == 'products':
+            products[route_key(entity['data']['legacyPath'])] = identifier
+        elif entity['collection'] == 'categories':
+            categories[entity['data']['slug']] = identifier
+        elif entity.get('listing') is not None:
+            listings[route_key(entity['data']['path'])] = identifier
+    for entity in entities.values():
+        if entity['collection'] == 'redirects' and entity['requires'].startswith('products:') and entity['requires'] in entities:
+            products.setdefault(route_key(entity['data']['from']), entity['requires'])
+    for route, identifier in sorted(listings.items()):
+        entity = entities[identifier]
+        listing, members, missing = entity['listing'], [], []
+        for card in listing['cards']:
+            route = route_key(card['path']) if card['path'] else None
+            target = products.get(route) if route is not None else None
+            if target is None and route is not None and follow(route) != route:
+                target = products.get(follow(route))
+                if target is not None:
+                    report.add('listing-card-redirect-resolved', entity['url'], entity['key'], f'informational: {card["path"]} reaches {entities[target]["data"]["legacyPath"]} by a captured HTTP redirect')
+            if target is None:
+                missing.append({'title': card['title'], **({'legacyPath': card['path']} if card['path'] else {})})
+                report.add('listing-product-unresolved', entity['url'], entity['key'], f'{card["title"]} ({card["path"] or "no own-site address"})')
+            elif target in members:
+                report.add('listing-duplicate-card', entity['url'], entity['key'], card['title'])
+            else:
+                members.append(target)
+                price = entities[target]['data'].get('priceCents')
+                if card['priceCents'] is not None and price is not None and card['priceCents'] != price:
+                    report.add('listing-price-differs', entity['url'], entity['key'], f'informational: {card["title"]}: card {card["priceCents"]} gr, product page {price} gr; the product is not changed')
+        if members:
+            entity['relations']['listingProducts'] = members
+        if missing:
+            entity['data']['listingMissing'] = missing
+        segments = stem_of(entity['data']['path']).split('/')
+        prefix = next(('/'.join(segments[:end]) for end in range(len(segments) - 1, 0, -1) if '/'.join(segments[:end]) in categories), None)
+        if prefix is not None:
+            category = entities[categories[prefix]]
+            vm_id, shown = category['data'].get('vmId'), listing['ids'][0]
+            if vm_id is not None and vm_id == shown:
+                entity['relations']['listingCategory'] = categories[prefix]
+            elif vm_id is None or shown is None:
+                # An address prefix alone is not proof that the list belongs to that category.
+                report.add('listing-category-unverified', entity['url'], entity['key'], f'address names {prefix}; category ID {vm_id or "not captured"}, the list shows {shown or "no category ID"}')
+            else:
+                report.add('listing-category-mismatch', entity['url'], entity['key'], f'address names {prefix} (VirtueMart category {vm_id}), the page searches VirtueMart category {shown}')
+    for route, identifier in sorted(listings.items()):
+        entity = entities[identifier]
+        links, seen = [], {route}
+        for link in entity['listing']['pagination']:
+            target_route = route_key(link['path'])
+            if target_route in seen or target_route not in listings:
+                continue
+            target = entities[listings[target_route]]
+            if None in entity['listing']['ids'] or target['listing']['ids'] != entity['listing']['ids']:
+                report.add('listing-link-other-filter', entity['url'], entity['key'], link['path'])
+                continue
+            seen.add(target_route)
+            data = target['data']
+            label = f'Wyniki {data["listingFrom"]}–{data["listingTo"]}' if data.get('listingFrom') else link['label']
+            if not text_problem(label, 100):
+                links.append({'label': label, 'path': data['path']})
+        if links:
+            entity['data']['listingLinks'] = links
+
+
+MAX_REDIRECT_HOPS = 20
+
+
+def plain_own_path(url):
+    """Decoded path of a plain own-site URL: no query (not even an empty '?'), fragment, credentials or
+    port, and a path the importer accepts unchanged; otherwise None."""
+    if not isinstance(url, str) or '?' in url or '#' in url:
+        return None
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    if not own_url(parts, port) or port is not None or parts.username is not None or parts.password is not None:
+        return None
+    return safe_page_path(parts.path or '/')
+
+
+def captured_redirect_routes(captured, live, report):
+    """{source route: final route} of exact HTTP redirects recorded with the authenticated captures
+    ({url, final_url}). Only plain own-site addresses; a source answered by several final addresses,
+    a source where content was captured itself (live content is never shadowed), chains longer than
+    MAX_REDIRECT_HOPS and cycles are reported and not followed. Nothing is inferred from IDs or names."""
+    if captured is None:
+        return {}
+    if not isinstance(captured, list) or len(captured) > MAX_PAGES:
+        raise ValueError('captured_redirects must be a list of at most MAX_PAGES capture records.')
+    targets = {}
+    for row in captured:
+        url = row.get('url') if isinstance(row, dict) else None
+        final = (row.get('final_url') or url) if isinstance(row, dict) else None
+        if not isinstance(url, str) or not isinstance(final, str):
+            report.add('captured-redirect-rejected', None, None, 'capture record without a url and final url')
+            continue
+        if final == url:
+            continue
+        source, target = plain_own_path(url), plain_own_path(final)
+        if source is None or target is None:
+            report.add('captured-redirect-rejected', public_url(url), None, 'not a plain own-site address pair (query, fragment, credentials, port, other host or unsafe path)')
+            continue
+        if route_key(source) != route_key(target):
+            targets.setdefault(route_key(source), (source, set()))[1].add(route_key(target))
+    hops = {}
+    for route, (source, finals) in sorted(targets.items()):
+        if len(finals) > 1:
+            report.add('captured-redirect-conflict', source, None, 'one address redirected to ' + ' | '.join(sorted(finals)))
+        elif route in live:
+            report.add('captured-redirect-shadowed', source, None, 'informational: content was captured at this address; it wins and the redirect is not followed')
+        else:
+            hops[route] = next(iter(finals))
+    resolved = {}
+    for route in sorted(hops):
+        current, seen, end = hops[route], {route}, None
+        for _ in range(MAX_REDIRECT_HOPS):
+            if current in live or current not in hops:
+                end = current
+                break
+            if current in seen:
+                break
+            seen.add(current)
+            current = hops[current]
+        if end is None:
+            report.add('captured-redirect-cycle', targets[route][0], None, f'redirect chain loops or exceeds {MAX_REDIRECT_HOPS} hops; not followed')
+        else:
+            resolved[route] = end
+    return resolved
+
+
+def convert_pages(pages, captured_at, manifest_hash, captured_redirects=None):
+    """captured_redirects: optional authenticated capture records [{url, final_url?}] whose exact HTTP
+    redirects resolve listing cards and month-calendar event addresses; redirect records themselves are
+    added afterwards by captured_redirects.attach_captured_redirects."""
     if not isinstance(manifest_hash, str) or not re.fullmatch(r'[a-f0-9]{64}', manifest_hash):
         raise ValueError('manifest_hash must be a lowercase sha256 hex digest.')
     try:
@@ -1452,6 +2259,12 @@ def convert_pages(pages, captured_at, manifest_hash):
         raise ValueError('captured_at must be an ISO 8601 timestamp.') from None
     report = Report()
     prepared = prepare_pages(pages, report)
+    live = {route_key(page['path']) for page in prepared} | set(FIXED_ROUTES) | {'', 'index', 'index.php'}
+    redirect_routes = captured_redirect_routes(captured_redirects, live, report)
+
+    def follow(route):
+        return redirect_routes.get(route, route)
+
     observations, parsed = CategoryObservations(), []
     for page in prepared:
         doc = parse_html(page['html'])
@@ -1462,7 +2275,7 @@ def convert_pages(pages, captured_at, manifest_hash):
     # Listings second: a root-form listing is recognised only once navigation on any page has named it.
     for page, doc in parsed:
         page['listing'] = listing_slug(doc, page, observations)
-        harvest_listing(doc, page, observations)
+        harvest_listing(doc, page, observations, report)
     # A captured product page is never a category, whatever links point at its address.
     for page, doc in parsed:
         slug = stem_of(page['path'])
@@ -1472,7 +2285,7 @@ def convert_pages(pages, captured_at, manifest_hash):
     categories = resolve_categories(observations, report)
     candidates, converted = [], 0
     for page, doc in parsed:
-        candidate = classify(doc, page, report)
+        candidate = classify(doc, page, report, categories)
         if candidate is None:
             continue
         converted += 1
@@ -1503,7 +2316,8 @@ def convert_pages(pages, captured_at, manifest_hash):
         entities['categories:' + category['key']] = {'collection': 'categories', 'key': category['key'], 'data': category['data'], 'relations': relations, 'media': []}
     for candidate in merged:
         relations = {'category': 'categories:' + categories[candidate['category']]['key']} if candidate.get('category') else {}
-        entities[f'{candidate["collection"]}:{candidate["key"]}'] = {'collection': candidate['collection'], 'key': candidate['key'], 'data': candidate['data'], 'relations': relations, 'media': candidate['media']}
+        entities[f'{candidate["collection"]}:{candidate["key"]}'] = {'collection': candidate['collection'], 'key': candidate['key'], 'data': candidate['data'], 'relations': relations, 'media': candidate['media'],
+                                                                     'url': candidate['url'], 'listing': candidate.get('listing'), 'fallback': candidate.get('fallback'), 'sectionLinks': candidate.get('sectionLinks')}
         if candidate['collection'] == 'courses' and candidate['data'].get('nextDate'):
             # A literal, unambiguous source start date is also a calendar term.
             # No quota, price, end date or location is inferred from the prose.
@@ -1530,9 +2344,20 @@ def convert_pages(pages, captured_at, manifest_hash):
             identifier = hashlib.sha256((course['key'] + '\0' + course['data']['nextDate']).encode()).hexdigest()
             relations = {'courseSession': 'course-sessions:public-course-start:' + identifier}
         entities['events:' + event['key']] = {'collection': 'events', 'key': event['key'], 'data': event['data'], 'relations': relations, 'media': []}
+    # A month cell may name an event page by a redirected address or by a second capture of the same
+    # event (merge alias); both resolve to the event page's own route before the rows are matched.
+    event_aliases = {route_key(redirect['data']['from']): route_key(redirect['data']['to']) for redirect in redirects if redirect['target'][0] == 'events'}
+
+    def event_route(href):
+        route = follow(route_key(href))
+        if route != route_key(href):
+            report.add('calendar-href-redirect-resolved', None, None, f'informational: month calendar link {href} reaches /{route} by a captured HTTP redirect')
+        return event_aliases.get(route, route)
+
+    moved = merge_event_details(entities, calendar_rows, merged, report, event_route)
     for redirect in redirects:
         collection, key = redirect.pop('target')
-        entities['redirects:' + redirect['key']] = {**redirect, 'relations': {}, 'requires': f'{collection}:{key}'}
+        entities['redirects:' + redirect['key']] = {**redirect, 'relations': {}, 'requires': moved.get(f'{collection}:{key}', f'{collection}:{key}')}
 
     # Every public address and unique value may be claimed once (validateBundle); '/x' and '/x.html' are one
     # address. A conflict drops every claimant and is reported, so the rest of the bundle still imports.
@@ -1559,6 +2384,14 @@ def convert_pages(pages, captured_at, manifest_hash):
             break
         for identifier in dropped:
             entities.pop(identifier, None)
+    # Only records that survived the address checks can be list members, categories or link targets.
+    resolve_listings(entities, report, follow)
+    # The list links a fixed section's source blog did not copy should each be an imported address.
+    claimed = {claim[1] for entity in entities.values() for claim in claims_of(entity) if claim[0] == 'route'}
+    for entity in entities.values():
+        for path in entity.get('sectionLinks') or []:
+            if follow(route_key(path)) not in claimed:
+                report.add('source-section-teaser-unresolved', entity['url'], entity['key'], f'{path}: listed by the source section, no imported record at this address')
 
     media = {}
     for identifier in sorted(entities):

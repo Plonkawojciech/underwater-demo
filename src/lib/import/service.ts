@@ -8,7 +8,7 @@ import { verifyDocumentBytes } from '../document-upload'
 import { transaction } from '../commerce/transaction'
 import { validateEnvironment } from '../environment'
 import {
-  IMPORTER_VERSION, ImportError, fieldSpecs, importCollections, legacyPath, mediaSourcePath, relationSpecs, routeKey, stableHash, validateBundle,
+  IMPORTER_VERSION, ImportError, addedFields, fieldSpecs, importCollections, legacyPath, mediaSourcePath, relationSpecs, routeKey, stableHash, validateBundle,
   type ImportCollection, type ImportMedia, type ImportDocument, type ImportSource, type PreparedEntity, type ValidatedBundle,
 } from './bundle'
 
@@ -184,6 +184,10 @@ export function contentProjectionHash(collection: ImportCollection, doc: Doc): s
     result[name] = project(spec, doc[name], collection === 'products' && name === 'variants' ? 'stock' : undefined)
   }
   for (const [name, spec] of Object.entries(relationSpecs[collection])) result[name] = spec.many ? (Array.isArray(doc[name]) ? doc[name].map(idOf) : []) : idOf(doc[name])
+  for (const name of addedFields[collection] ?? []) {
+    const value = result[name]
+    if (value == null || value === false || (Array.isArray(value) && !value.length)) delete result[name]
+  }
   return stableHash(result)
 }
 const normal = (value: unknown) => value == null ? null : String(value).normalize('NFC').trim().toLowerCase()

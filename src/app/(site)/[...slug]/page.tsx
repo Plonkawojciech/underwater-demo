@@ -3,7 +3,7 @@ import { notFound, permanentRedirect } from 'next/navigation'
 import { firstParam, parseMonth, parsePage, searchQuery, tripView } from '@/lib/presentation'
 import { resolveRoute, type FixedRoute } from '@/views/resolve'
 import { resolvedMeta } from '@/views/meta'
-import { ShopIndex, CategoryPage, ProductPage } from '@/views/shop'
+import { ShopIndex, CategoryPage, ListingPage, ProductPage } from '@/views/shop'
 import { CoursesIndex, CoursePage } from '@/views/training'
 import { ArticleIndex, ArticlePage, AlbumPage, AlbumsIndex, CalendarPage, EventPage, TripPage, TripsIndex } from '@/views/content'
 import { ContactPage } from '@/views/pages'
@@ -56,7 +56,7 @@ export default async function Page({ params, searchParams }: Props) {
     case 'product': return <ProductPage product={r.doc} />
     case 'category': return <CategoryPage category={r.doc} page={page} />
     case 'course': return <CoursePage course={r.doc} />
-    case 'page': return <ArticlePage page={r.doc} />
+    case 'page': return r.doc.listing ? <ListingPage page={r.doc} /> : <ArticlePage page={r.doc} />
     case 'trip': return <TripPage trip={r.doc} />
     case 'album': return <AlbumPage album={r.doc} page={page} />
     case 'event': return <EventPage event={r.doc} />

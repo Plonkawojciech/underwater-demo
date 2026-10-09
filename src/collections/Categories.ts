@@ -1,4 +1,4 @@
-import type { CollectionConfig } from 'payload'
+import { APIError, type CollectionConfig } from 'payload'
 import { publicContentAccess } from '../lib/access'
 import { contentFields } from './fields'
 
@@ -7,6 +7,10 @@ export const Categories: CollectionConfig = {
   labels: { singular: 'Kategoria', plural: 'Kategorie' },
   admin: { useAsTitle: 'name', group: 'Sklep', defaultColumns: ['name', 'vmId', 'parent'] },
   access: publicContentAccess,
+  hooks: { beforeDelete: [async ({ id, req }) => {
+    const references = await req.payload.count({ collection: 'pages', where: { listingCategory: { equals: id } }, overrideAccess: true, req })
+    if (references.totalDocs) throw new APIError('Ta kategoria jest używana przez listę produktów. Najpierw zmień kategorię tej listy.', 400)
+  }] },
   fields: [
     { name: 'name', label: 'Nazwa', type: 'text', required: true },
     { name: 'slug', label: 'Adres (slug)', type: 'text', required: true, unique: true, admin: { description: 'Np. 80-maski-i-fajki — adres /80-maski-i-fajki.html zostaje taki sam jak dziś' } },

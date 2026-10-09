@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { ImportError, legacyPath, mediaSourcePath, orderedEntities, validateBundle, type ImportCollection } from '../src/lib/import/bundle'
-import { readVerifiedFile, sourceVerification } from '../src/lib/import/service'
+import { contentProjectionHash, readVerifiedFile, sourceVerification } from '../src/lib/import/service'
 
 const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex')
 const header = { version: 1, source: { kind: 'public-pages', manifestHash: 'a'.repeat(64), capturedAt: '2026-10-08T00:00:00Z', complete: false }, media: [] as unknown[] }
@@ -65,6 +65,46 @@ test('DTO validation: field allowlist, types, relation targets and cardinality',
   reject([{ collection: 'redirects', key: 'r1', data: { from: '/x.html', to: '/y.html', published: true } }, { collection: 'redirects', key: 'r2', data: { from: '/y.html', to: '/x', published: true } }], /redirect cycle/)
   const shadowed = validateBundle(bundle([page('kontakt'), page('b', { path: '/koszyk/b.html' })])).shadowed.map(item => item.route)
   assert.deepEqual(shadowed.sort(), ['kontakt', 'koszyk/b'])
+})
+
+test('product list pages: ordered product relations, names without a product, complete ranges and own results links', () => {
+  const category = { collection: 'categories', key: 'c', data: { name: 'C', slug: '1-c', published: true } }
+  const product = (n: number) => ({ collection: 'products', key: `p${n}`, data: { name: `P${n}`, slug: `${n}-p`, vmId: n, priceCents: n * 100, published: true }, relations: { category: 'categories:c' } })
+  const list = (data: Record<string, unknown> = {}, relations: Record<string, unknown> = {}) =>
+    page('1-c/marka', { listing: true, ...data }, { listingCategory: 'categories:c', listingProducts: ['products:p2', 'products:p1'], ...relations })
+  const catalogue = [category, product(1), product(2)]
+  const ok = validateBundle(bundle([list({ listingFrom: 1, listingTo: 3, listingTotal: 3, listingMissing: [{ title: 'Nieznany', legacyPath: '/9-nieznany,czarny.html' }], listingLinks: [{ label: 'Wyniki 4–6', path: '/1-c/marka/results,4-6.html' }] }), ...catalogue]))
+  const entity = ok.entities.find(item => item.collection === 'pages')!
+  assert.deepEqual(entity.relations.listingProducts, ['products:p2', 'products:p1'], 'page order is kept')
+  assert.equal(entity.relations.listingCategory, 'categories:c')
+  assert.deepEqual(entity.data.listingMissing, [{ title: 'Nieznany', legacyPath: '/9-nieznany,czarny.html' }])
+  assert.deepEqual(entity.data.listingLinks, [{ label: 'Wyniki 4–6', path: '/1-c/marka/results,4-6.html' }])
+  assert.ok(ok.entities.indexOf(entity) > ok.entities.findIndex(item => item.key === 'p2'), 'members are written before the list')
+  const plain = validateBundle(bundle([page('a')])).entities[0]
+  assert.deepEqual([plain.data.listing, plain.data.listingFrom, plain.data.listingMissing, plain.data.listingLinks, plain.relations.listingProducts, plain.relations.listingCategory], [null, null, [], [], [], null])
+
+  const reject = (entities: unknown[], pattern: RegExp) => assert.throws(() => validateBundle(bundle(entities)), pattern)
+  reject([list({}, { listingProducts: ['categories:c'] }), ...catalogue], /listingProducts: must reference products/)
+  reject([list({}, { listingCategory: 'products:p1' }), ...catalogue], /listingCategory: must reference categories/)
+  reject([list({}, { listingProducts: ['products:p1', 'products:p1'] }), ...catalogue], /duplicate reference/)
+  reject([list({}, { listingProducts: ['products:p9'] }), ...catalogue], /unresolved source relationship/)
+  reject([list({}, { listingProducts: 'products:p1' }), ...catalogue], /expected a list of references/)
+  reject([page('a', { listingFrom: 1, listingTo: 1, listingTotal: 1 })], /listing fields require listing: true/)
+  reject([page('a', {}, { listingProducts: ['products:p1'] }), ...catalogue], /listing fields require listing: true/)
+  reject([list({ listingFrom: 1, listingTo: 3 }), ...catalogue], /complete range/)
+  reject([list({ listingFrom: 4, listingTo: 3, listingTotal: 9 }), ...catalogue], /complete range/)
+  reject([list({ listingFrom: 0, listingTo: 3, listingTotal: 9 }), ...catalogue], /listingFrom: expected integer/)
+  reject([list({ listingLinks: [{ label: 'Ta sama', path: '/1-c/marka' }] }), ...catalogue], /points to the page itself/)
+  reject([list({ listingMissing: [{ title: 'X', legacyPath: '/a?b=1' }] }), ...catalogue], /canonical source path/)
+  reject([list({ kind: 'news' }), ...catalogue], /information page/)
+})
+
+test('fields added for product lists do not turn page records of an older importer into staff edits', () => {
+  const old = { title: 'T', path: '/t.html', kind: 'page', lead: null, body: '<p>x</p>', publishedAt: null, published: true, legacyPath: '/t.html', sourceUpdatedAt: null, seo: { title: null, description: null, image: null }, image: null, album: null }
+  const now = { ...old, listing: null, listingFrom: null, listingTo: null, listingTotal: null, listingMissing: [], listingLinks: [], listingCategory: null, listingProducts: [] }
+  assert.equal(contentProjectionHash('pages', now as never), contentProjectionHash('pages', old as never))
+  assert.equal(contentProjectionHash('pages', { ...now, listing: false } as never), contentProjectionHash('pages', old as never))
+  assert.notEqual(contentProjectionHash('pages', { ...now, listing: true, listingProducts: [5] } as never), contentProjectionHash('pages', old as never))
 })
 
 test('source completeness requires a database dump with a trusted manifest digest', () => {

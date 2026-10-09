@@ -411,6 +411,29 @@ export interface Page {
   image?: (number | null) | Media;
   album?: (number | null) | Album;
   publishedAt?: string | null;
+  /**
+   * Strona pokazuje produkty wskazane poniżej, w podanej kolejności.
+   */
+  listing?: boolean | null;
+  listingCategory?: (number | null) | Category;
+  listingProducts?: (number | Product)[] | null;
+  listingMissing?:
+    | {
+        title: string;
+        legacyPath?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  listingFrom?: number | null;
+  listingTo?: number | null;
+  listingTotal?: number | null;
+  listingLinks?:
+    | {
+        label: string;
+        path: string;
+        id?: string | null;
+      }[]
+    | null;
   published?: boolean | null;
   legacyKey?: string | null;
   sourceHash?: string | null;
@@ -1160,6 +1183,26 @@ export interface PagesSelect<T extends boolean = true> {
   image?: T;
   album?: T;
   publishedAt?: T;
+  listing?: T;
+  listingCategory?: T;
+  listingProducts?: T;
+  listingMissing?:
+    | T
+    | {
+        title?: T;
+        legacyPath?: T;
+        id?: T;
+      };
+  listingFrom?: T;
+  listingTo?: T;
+  listingTotal?: T;
+  listingLinks?:
+    | T
+    | {
+        label?: T;
+        path?: T;
+        id?: T;
+      };
   published?: T;
   legacyKey?: T;
   sourceHash?: T;

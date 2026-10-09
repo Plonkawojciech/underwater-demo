@@ -9,11 +9,13 @@ import json
 import os
 from pathlib import Path
 from collections import Counter
+from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from content_parser import convert_pages
 from bundle_media import attach_media
 from captured_redirects import attach_captured_redirects
+from captured_home_aliases import attach_verified_home_aliases
 from media_cache import acquire
 from public_document_bundle import attach_documents
 from inventory import decrypt_manifest
@@ -70,8 +72,15 @@ def main():
             decode_failures.append({'url': final, 'error_type': type(error).__name__})
             continue  # encrypted original stays intact for a source-data review
         pages.append({'url': final, 'html': markup, 'sha256': row['sha256'], 'charset': row.get('charset') or 'utf-8'})
-    converted = convert_pages(pages, state['started_at'], hashlib.sha256(manifest_bytes).hexdigest())
+    # The authenticated manifest rows also resolve listing cards and calendar links that the source
+    # answered with an exact HTTP redirect; the redirect records are still attached afterwards.
+    converted = convert_pages(pages, state['started_at'], hashlib.sha256(manifest_bytes).hexdigest(), state['files'])
     converted['unresolved'].extend(attach_captured_redirects(converted['bundle'], state['files']))
+    verified_home_aliases = attach_verified_home_aliases(converted['bundle'], pages)
+    resolved_home_paths = {row['path'] for row in verified_home_aliases}
+    for issue in converted['unresolved']:
+        if issue['code'] == 'no-main-content' and issue.get('url') and urlsplit(issue['url']).path in resolved_home_paths:
+            issue.update(code='source-home-alias-resolved', detail='informational: exact captured homepage main content; a verified redirect to the homepage is included')
     converted['counts']['entities'] = dict(Counter(row['collection'] for row in converted['bundle']['entities']))
     converted['counts']['unresolved'] = len(converted['unresolved'])
     output = PRIVATE / ('20261008-import-' + args.capture)
@@ -100,7 +109,7 @@ def main():
     attach_media(bundle, converted['media_urls'])
     documents = attach_documents(bundle, PRIVATE, media_root, key)
     private_json(output / 'bundle.json', bundle)
-    private_json(output / 'conversion-report.json', {'counts': converted['counts'], 'unresolved': converted['unresolved'], 'capturePending': len(state.get('pending', [])), 'captureFailures': len(state.get('failed', [])), 'sourceRedirects': redirects, 'mediaFailures': acquired['failed'], 'decodeFailures': decode_failures, 'excludedNavigation': excluded_navigation, 'databaseSnapshot': False})
+    private_json(output / 'conversion-report.json', {'counts': converted['counts'], 'unresolved': converted['unresolved'], 'capturePending': len(state.get('pending', [])), 'captureFailures': len(state.get('failed', [])), 'sourceRedirects': redirects, 'verifiedHomeAliases': verified_home_aliases, 'mediaFailures': acquired['failed'], 'decodeFailures': decode_failures, 'excludedNavigation': excluded_navigation, 'databaseSnapshot': False})
     print(json.dumps({'entities': dict(Counter(row['collection'] for row in bundle['entities'])), 'media': len(bundle['media']), 'documents': documents, 'conversionReview': dict(Counter(row['code'] for row in converted['unresolved'])), 'mediaFailures': len(acquired['failed']), 'sourceComplete': False}), flush=True)
 
 
