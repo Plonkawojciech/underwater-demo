@@ -10,9 +10,9 @@ import { Products } from '../src/collections/Products'
 test('CMS checkbox labels retain three states without translation keys or literal booleans', () => {
   assert.equal(booleanCellLabel(true), 'Tak')
   assert.equal(booleanCellLabel(false), 'Nie')
-  assert.equal(booleanCellLabel(null), '—')
-  assert.equal(booleanCellLabel(undefined), '—')
-  for (const unexpected of ['false', 'true', 0, 1, {}]) assert.equal(booleanCellLabel(unexpected), '—')
+  assert.equal(booleanCellLabel(null), 'Nie ustawiono')
+  assert.equal(booleanCellLabel(undefined), 'Nie ustawiono')
+  for (const unexpected of ['false', 'true', 0, 1, {}]) assert.equal(booleanCellLabel(unexpected), 'Nie ustawiono')
 })
 
 test('CMS featured column uses the readable checkbox cell without rewriting imported nulls', () => {
@@ -21,7 +21,7 @@ test('CMS featured column uses the readable checkbox cell without rewriting impo
   assert.equal(field.defaultValue, false)
   assert.equal(field.admin?.components?.Cell, '@/components/admin/BooleanCell')
   assert.equal(field.hooks, undefined, 'Display formatting must not write defaults into imported records')
-  for (const [value, expected] of [[true, '<span>Tak</span>'], [false, '<span>Nie</span>'], [null, '<span aria-label="Nie ustawiono">—</span>'], [undefined, '<span aria-label="Nie ustawiono">—</span>']] as const) {
+  for (const [value, expected] of [[true, '<span>Tak</span>'], [false, '<span>Nie</span>'], [null, '<span>Nie ustawiono</span>'], [undefined, '<span>Nie ustawiono</span>']] as const) {
     const props: DefaultCellComponentProps<CheckboxFieldClient, unknown> = {
       cellData: value, collectionSlug: 'products', field: { name: 'featured', type: 'checkbox', label: 'Pokaż w promocjach na stronie głównej' }, rowData: { id: 1, featured: value },
     }

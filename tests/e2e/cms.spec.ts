@@ -218,10 +218,12 @@ test('editor creates a course session using named date inputs, comma money and a
   expect((await documents(page.request, 'course-sessions', 'title', title)).totalDocs).toBe(0)
   const courses = await documents(page.request, 'courses', 'slug', 'test-qa-kurs')
   expect(courses.totalDocs).toBe(1)
+  const courseName = courses.docs[0].name
+  if (typeof courseName !== 'string') throw new Error('The synthetic course fixture requires a name.')
   await page.goto('/admin/collections/course-sessions/create')
   await page.locator('#field-title').fill(title)
-  await page.locator('#field-course').getByRole('combobox').fill('TEST QA kurs')
-  await page.getByRole('option', { name: 'TEST QA kurs', exact: true }).click()
+  await page.locator('#field-course').getByRole('combobox').fill(courseName)
+  await page.getByRole('option', { name: courseName, exact: true }).click()
   const dates = await page.evaluate(() => {
     const start = new Date(Date.now() + 45 * 86400000)
     start.setHours(10, 0, 0, 0)

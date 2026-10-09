@@ -25,11 +25,10 @@ test('UW-02: featured product column displays Tak, Nie and an unset value', asyn
   const query = new URLSearchParams({ columns: JSON.stringify(['name', 'featured']), 'where[name][contains]': 'TEST QA wyróżnienie' })
   await page.goto(`/admin/collections/products?${query}`)
   await expect(page.getByRole('columnheader', { name: /Pokaż w promocjach na stronie głównej/ })).toBeVisible()
-  for (const [value, label] of [['true', 'Tak'], ['false', 'Nie'], ['null', '—']] as const) {
+  for (const [value, label] of [['true', 'Tak'], ['false', 'Nie'], ['null', 'Nie ustawiono']] as const) {
     const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: `TEST QA wyróżnienie ${value}`, exact: true }) })
     await expect(row).toHaveCount(1)
     await expect(row.locator('td.cell-featured')).toHaveText(label)
-    if (value === 'null') await expect(row.locator('td.cell-featured [aria-label="Nie ustawiono"]')).toHaveCount(1)
   }
   await expect(page.locator('table')).not.toContainText('general:null')
   await expect(page.locator('table')).not.toContainText('fałszywe')

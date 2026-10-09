@@ -88,7 +88,11 @@ test('UW-03: a cold product already shows privacy choices before hydration and s
     await expect(notice.getByRole('button', { name: 'Tylko niezbędne', exact: true })).toBeVisible()
     await expect(notice.getByRole('button', { name: 'Zgoda na pomiar (test)', exact: true })).toBeVisible()
     await expect(notice.getByRole('button', { name: 'Ustawienia', exact: true })).toBeVisible()
+    // Visibility alone can pass on unstyled streaming HTML. Measure the cold
+    // painted layout only after its stylesheet, still before any application JS.
+    await expect.poll(() => notice.evaluate(element => getComputedStyle(element).position)).toBe('fixed')
     await page.evaluate(() => document.fonts.ready)
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const before = await page.evaluate(() => {
       const mainTop = document.querySelector('main')!.getBoundingClientRect().top
       ;(window as unknown as { __uwLayout: LayoutState }).__uwLayout.mainTop = mainTop
