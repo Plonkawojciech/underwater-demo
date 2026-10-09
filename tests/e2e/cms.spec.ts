@@ -419,13 +419,27 @@ test('administrator sees saved variant changes and preserves an edit made during
     const after = (await documents(page.request, 'products', 'vmId', vmId)).docs[0]
     expect(after).toMatchObject({ id: created.id, name, stock: 3, variants: [expect.objectContaining({ id: savedVariants[0].id, label: 'Niebieski', stock: 3 })] })
 
-    const rejectedSave = page.waitForResponse(candidate => candidate.request().method() === 'PATCH' && new URL(candidate.url()).pathname === `/api/products/${created.id}`)
-    await page.locator('#action-save').click()
-    const rejection = await rejectedSave
+    // Editing the old document after the service write activates Payload's
+    // native stale-data protection. Keep the draft instead of forcing a click
+    // through its modal or reloading away the unsaved name.
+    const staleDocument = page.locator('#document-stale-data')
+    await expect(staleDocument).toBeVisible()
+    await expect(staleDocument.getByRole('heading', { name: 'Dokument zmodyfikowany', exact: true })).toBeVisible()
+    await expect(staleDocument).toContainText('Twoja wersja jest nieaktualna.')
+    await expect(staleDocument.getByRole('button', { name: 'Przeładuj dokument', exact: true })).toBeVisible()
+    await expect(page.locator('#field-name')).toHaveValue(draftName)
+
+    // The server must also reject a real stale write independently of the UI.
+    const baseURL = info.project.use.baseURL
+    if (typeof baseURL !== 'string') throw new Error('The stale write requires the configured isolated harness origin.')
+    const rejection = await page.request.patch(`/api/products/${created.id}`, {
+      headers: { Origin: new URL(baseURL).origin },
+      data: { name: draftName, stock: before.stock, variants: before.variants },
+    })
     expect(rejection.status(), 'The stale form must not overwrite the inventory correction').toBe(409)
     const problem = await rejection.json() as { errors?: Array<{ message?: string }> }
     expect(problem.errors).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('Stan magazynu zmienił') })]))
-    await expect(page.getByText(/Stan magazynu zmienił/).first()).toBeVisible()
+    await expect(staleDocument).toBeVisible()
     await expect(page.locator('#field-name')).toHaveValue(draftName)
     const preserved = (await documents(page.request, 'products', 'vmId', vmId)).docs[0]
     expect(preserved).toMatchObject({ id: created.id, name, stock: 3, variants: [expect.objectContaining({ id: savedVariants[0].id, label: 'Niebieski', stock: 3 })] })
