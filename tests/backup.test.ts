@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
+import { fileURLToPath } from 'node:url'
 
-const SCRIPT = new URL('../scripts/backup/underwater_backup.py', import.meta.url).pathname
+const SCRIPT = fileURLToPath(new URL('../scripts/backup/underwater_backup.py', import.meta.url))
 const RUNTIME = '/Users/wojciechplonka/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3'
 const PYTHON = process.env.UNDERWATER_BACKUP_PYTHON || (existsSync(RUNTIME) ? RUNTIME : 'python3')
 const ENV = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }

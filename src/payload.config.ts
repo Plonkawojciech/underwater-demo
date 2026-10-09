@@ -47,7 +47,7 @@ export default buildConfig({
   globals: [Settings].map(withPolishCMSLabels),
   editor: lexicalEditor(),
   secret: runtime.secret,
-  typescript: { outputFile: path.resolve(dirname, 'payload-types.ts') },
+  typescript: { autoGenerate: false, outputFile: path.resolve(dirname, 'payload-types.ts') },
   db: leasedSqliteAdapter({
     client: { url: runtime.databaseURI },
     migrationDir: path.resolve(dirname, 'migrations'),
