@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { useActionState, useId } from 'react'
 import { createContact, subscribeNewsletter, type FormState } from '@/lib/actions'
-import type { ContactContext } from '@/lib/presentation'
+import { CONTACT_FORM_ID, type ContactContext } from '@/lib/presentation'
 import { Honeypot } from './FormBits'
 
 const initial: FormState = { ok: false, message: '' }
@@ -31,8 +31,8 @@ export function ContactForm({ privacyHref, context }: { privacyHref?: string; co
     )
   }
   return (
-    <form action={action} className="form" aria-describedby={state.message ? `${uid}-err` : undefined}>
-      <h2 className="subh subh-first">Napisz do nas</h2>
+    <form id={CONTACT_FORM_ID} action={action} className="form" aria-labelledby={`${uid}-heading`} aria-describedby={state.message ? `${uid}-err` : undefined}>
+      <h2 id={`${uid}-heading`} className="subh subh-first">Napisz do nas</h2>
       {context ? (
         <div className="enquiry">
           <p className="enquiry-k">{CONTEXT_LABEL[context.kind]}</p>

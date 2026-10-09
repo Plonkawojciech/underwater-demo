@@ -48,7 +48,7 @@ test('product page: unknown stock blocks purchase with a working enquiry; zero i
     h(CartProvider, null, h(AddToCart, { product: { id: 7, slug: 'maska', name: 'Maska', price, stock }, variants: variants.map((v) => ({ ...v, price })) })),
   )
   const unknown = buy(null)
-  assert.match(unknown, /href="\/kontakt\.html\?produkt=7"[^>]*>Zapytaj o dostępność/)
+  assert.match(unknown, /href="\/kontakt\.html\?produkt=7#formularz-kontaktowy"[^>]*>Zapytaj o dostępność/)
   assert.match(unknown, /Dostępność do potwierdzenia/)
   assert.doesNotMatch(unknown, /Dodaj do koszyka|niedostępny/)
   const zero = buy(0)

@@ -286,8 +286,8 @@ test('phone links: each written number keeps its text; Polish numbers get +48; n
 })
 
 test('enquiry links carry only a record id; the query parser accepts positive ids only', () => {
-  assert.equal(enquiryHref('product', 42), '/kontakt.html?produkt=42')
-  assert.equal(enquiryHref('trip', 7), '/kontakt.html?wyjazd=7')
+  assert.equal(enquiryHref('product', 42), '/kontakt.html?produkt=42#formularz-kontaktowy')
+  assert.equal(enquiryHref('trip', 7), '/kontakt.html?wyjazd=7#formularz-kontaktowy')
   assert.equal(enquiryHref('product', -1), '/kontakt.html')
   assert.deepEqual(contactQuery({ produkt: '42' }), { kind: 'product', id: 42 })
   assert.deepEqual(contactQuery({ wyjazd: ['7', '8'] }), { kind: 'trip', id: 7 })

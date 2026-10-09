@@ -664,10 +664,11 @@ export const telHref = (raw?: string | null): string | null => phoneParts(raw).f
 /** What a contact message is about. The server re-reads the published record before trusting it. */
 export type ContactContext = { kind: 'product' | 'trip'; id: number; title: string; href: string }
 const CONTACT_PARAM = { product: 'produkt', trip: 'wyjazd' } as const
+export const CONTACT_FORM_ID = 'formularz-kontaktowy'
 
-/** Contact page link that names the record by id only (no titles in the URL). */
+/** Open the contact form with only the record id in the query (no titles in the URL). */
 export const enquiryHref = (kind: ContactContext['kind'], id: number) =>
-  Number.isSafeInteger(id) && id > 0 ? withQuery('/kontakt.html', { [CONTACT_PARAM[kind]]: id }) : '/kontakt.html'
+  Number.isSafeInteger(id) && id > 0 ? `${withQuery('/kontakt.html', { [CONTACT_PARAM[kind]]: id })}#${CONTACT_FORM_ID}` : '/kontakt.html'
 
 /** The record a contact link points to, or null. Validation only; the record itself is read on the server. */
 export function contactQuery(q: Query): { kind: ContactContext['kind']; id: number } | null {

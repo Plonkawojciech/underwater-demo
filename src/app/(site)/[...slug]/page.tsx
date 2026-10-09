@@ -52,7 +52,16 @@ export default async function Page({ params, searchParams }: Props) {
   const page = parsePage(q.strona)
   switch (r.kind) {
     case 'redirect': permanentRedirect(r.to)
-    case 'fixed': return <>{r.source?.body || r.source?.lead ? <section className="section light"><div className="wrap article">{r.source.lead ? <p className="lead">{r.source.lead}</p> : null}{r.source.body ? <RichBody html={r.source.body} /> : null}</div></section> : null}{fixedView(r.route, page, q)}</>
+    case 'fixed': {
+      const source = r.source?.body || r.source?.lead
+        ? <section className="section light"><div className="wrap article">{r.source.lead ? <p className="lead">{r.source.lead}</p> : null}{r.source.body ? <RichBody html={r.source.body} /> : null}</div></section>
+        : null
+      // Imported staff biographies supplement the contact page. Keep its heading,
+      // contact details and form first without changing other section introductions.
+      return r.route === 'contact'
+        ? <>{fixedView(r.route, page, q)}{source}</>
+        : <>{source}{fixedView(r.route, page, q)}</>
+    }
     case 'product': return <ProductPage product={r.doc} />
     case 'category': return <CategoryPage category={r.doc} page={page} />
     case 'course': return <CoursePage course={r.doc} />
