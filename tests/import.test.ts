@@ -18,7 +18,7 @@ Object.assign(process.env, { UNDERWATER_ENVIRONMENT: 'test', UNDERWATER_DATA_ROO
 let payload: Payload
 const sha = (data: Buffer) => createHash('sha256').update(data).digest('hex')
 const images: Record<string, Buffer> = {}
-const tracked: CollectionSlug[] = ['categories', 'products', 'courses', 'course-sessions', 'pages', 'trips', 'albums', 'events', 'redirects', 'media', 'import-runs']
+const tracked: CollectionSlug[] = ['categories', 'products', 'courses', 'course-sessions', 'pages', 'trips', 'albums', 'events', 'redirects', 'media', 'documents', 'import-runs']
 async function snapshot() {
   const counts = await Promise.all(tracked.map(async collection => [collection, (await payload.count({ collection, overrideAccess: true })).totalDocs]))
   const settings = await payload.findGlobal({ slug: 'settings', depth: 0, overrideAccess: true })
@@ -317,4 +317,46 @@ test('retried transactions do not double count and an interrupted run resumes id
   assert.ok(Number.isSafeInteger(history[0].counts.created))
   assert.equal('attemptHistory' in history[0].counts, false)
   for (const item of second.entities) assert.equal((await payload.count({ collection: item.collection as CollectionSlug, where: { legacyKey: { equals: item.key } }, overrideAccess: true })).totalDocs, 1)
+})
+
+test('public PDF imports preserve bytes, replace body links, resume idempotently and keep staff titles', async () => {
+  const { PDFDocument } = await import('pdf-lib')
+  const pdf = await PDFDocument.create(); pdf.addPage([120, 180])
+  const bytes = Buffer.from(await pdf.save())
+  mkdirSync(path.join(sourceRoot, 'documents'), { recursive: true })
+  writeFileSync(path.join(sourceRoot, 'documents/static.pdf'), bytes)
+  const bundle = {
+    version: 1, source: { kind: 'public-pages', manifestHash: 'd'.repeat(64), capturedAt: '2026-10-09T00:00:00Z', complete: false }, media: [],
+    documents: [{ key: 'synthetic-public-pdf', path: 'documents/static.pdf', sha256: sha(bytes), title: 'Tabela syntetyczna', url: 'https://www.underwater.pl/images/Tabela%20syntetyczna.pdf' }],
+    entities: [{ collection: 'pages', key: 'synthetic-pdf-page', data: { title: 'Materiały', path: '/synthetic-pdf.html', kind: 'page', published: true, body: '<p><a href="/images/Tabela%20syntetyczna.pdf">Pobierz tabelę</a></p>' } }],
+  }
+  const before = await snapshot()
+  const planned = await dryRun(bundle)
+  assert.equal(planned.plan.documentsCreated, 1)
+  assert.deepEqual(await snapshot(), before, 'preflight cannot upload or write source records')
+  const first = await run(bundle)
+  assert.equal(first.counts.documentsCreated, 1)
+  assert.equal(first.counts.created, 1)
+  assert.deepEqual(first.unresolved, [])
+  const doc = await one('documents', 'synthetic-public-pdf')
+  assert.equal(doc.legacyPath, '/images/Tabela syntetyczna.pdf')
+  assert.equal(sha(readFileSync(path.join(root, 'media/documents', doc.filename))), sha(bytes))
+  assert.match((await one('pages', 'synthetic-pdf-page')).body, /href="\/images\/Tabela%20syntetyczna\.pdf"/)
+  await payload.update({ collection: 'documents', id: doc.id, data: { title: 'Opis poprawiony przez redakcję' }, overrideAccess: true })
+  const resumed = await run(bundle)
+  assert.equal(resumed.counts.documentsCreated, 0)
+  assert.equal(resumed.counts.documentsExisting, 1)
+  assert.equal(resumed.counts.unchanged, 1)
+  assert.equal((await one('documents', 'synthetic-public-pdf')).title, 'Opis poprawiony przez redakcję')
+  assert.equal((await payload.count({ collection: 'documents', where: { legacyKey: { equals: 'synthetic-public-pdf' } } })).totalDocs, 1)
+  assert.equal(resumed.reconciliation.documents.found, 1)
+})
+
+test('a corrupt document fails preflight before any entity, run or upload is written', async () => {
+  mkdirSync(path.join(sourceRoot, 'documents'), { recursive: true })
+  const body = Buffer.from('%PDF-1.7\nsynthetic malformed\n%%EOF')
+  writeFileSync(path.join(sourceRoot, 'documents/bad.pdf'), body)
+  const before = await snapshot()
+  await assert.rejects(run({ version: 1, source: { kind: 'demo', manifestHash: 'e'.repeat(64), capturedAt: '2026-10-09T00:00:00Z', complete: false }, media: [], entities: [], documents: [{ key: 'synthetic-bad-pdf', path: 'documents/bad.pdf', sha256: sha(body), title: 'Nieprawidłowy', url: '/images/bad.pdf' }] }))
+  assert.deepEqual(await snapshot(), before)
 })

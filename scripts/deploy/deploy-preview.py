@@ -22,18 +22,18 @@ if($i['mode']==='queue'){
  $queued=queue_application_deployment($a,$i['deployment_uuid'],commit:$i['commit'],is_api:true);
 }
 $uuid=$queued['deployment_uuid']??$i['deployment_uuid'];
-$d=App\Models\ApplicationDeploymentQueue::where('application_id',15)
- ->where('deployment_uuid',$uuid)->first();
+$query=App\Models\ApplicationDeploymentQueue::where('application_id',15);
+$d=$i['mode']==='latest'?$query->where('commit',$i['commit'])->orderByDesc('id')->first():$query->where('deployment_uuid',$uuid)->first();
 echo json_encode(['application'=>$a->uuid,'deployment'=>$d?->deployment_uuid,
  'commit'=>$d?->commit,'status'=>$d?->status,'admission'=>$queued['status']??null,'createdAt'=>$d?->created_at,'updatedAt'=>$d?->updated_at]);
 '''
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['queue', 'status'])
+    parser.add_argument('mode', choices=['queue', 'status', 'latest'])
     parser.add_argument('value', help='40-character reviewed commit for queue; deployment UUID for status')
     args = parser.parse_args()
-    if args.mode == 'queue':
+    if args.mode in {'queue', 'latest'}:
         if not re.fullmatch(r'[a-f0-9]{40}', args.value): raise ValueError('A concrete commit is required.')
         data = {'mode': args.mode, 'commit': args.value, 'deployment_uuid': str(uuid.uuid4())}
     else:

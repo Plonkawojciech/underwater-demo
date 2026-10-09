@@ -3,7 +3,6 @@ import { db } from './data'
 import { contact, signup, subscribe } from './forms/service'
 import { actionOrigin, rateLimit } from './http'
 import { email, hash, InputError } from './commerce/input'
-import { checkout } from './commerce/order'
 
 export type FormState = { ok: boolean; message: string; number?: string }
 function fromForm(form: FormData) {
@@ -28,14 +27,3 @@ async function runForm(form: FormData, operation: 'contact' | 'signup' | 'newsle
 export async function createSignup(_prev: FormState, form: FormData) { return runForm(form, 'signup') }
 export async function createContact(_prev: FormState, form: FormData) { return runForm(form, 'contact') }
 export async function subscribeNewsletter(_prev: FormState, form: FormData) { return runForm(form, 'newsletter') }
-// Compatibility for the former demo action: no trust in submitted prices.
-export async function createOrder(_prev: FormState, form: FormData): Promise<FormState> {
-  try {
-    await actionOrigin()
-    const input = fromForm(form)
-    let items: unknown
-    try { items = JSON.parse(String(form.get('items') || '[]')) } catch { throw new InputError('Nieprawidłowy koszyk.') }
-    const result = await checkout(await db(), { idempotencyKey: input.idempotencyKey, customerName: input.name, email: input.email, phone: input.phone, address: input.address, deliveryMethod: input.deliveryMethod, privacyAccepted: input.privacyAccepted, termsAccepted: input.termsAccepted, website: input.website, items })
-    return { ok: true, message: 'Zapisaliśmy zamówienie testowe.', number: result.number }
-  } catch (error) { return { ok: false, message: error instanceof InputError ? error.message : 'Nie udało się zapisać zamówienia.' } }
-}

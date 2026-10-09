@@ -6,15 +6,16 @@ export { routeKey }
 // Bump whenever validation, mapping or sanitising changes what a bundle writes.
 // The version is part of every run key and every stored entity hash, so a new
 // importer re-reconciles all records instead of trusting an older result.
-export const IMPORTER_VERSION = 3
+export const IMPORTER_VERSION = 4
 
 export const importCollections = ['categories', 'products', 'courses', 'course-sessions', 'pages', 'trips', 'albums', 'events', 'redirects'] as const
 export type ImportCollection = typeof importCollections[number]
 export type ImportEntity = { collection: ImportCollection; key: string; data: Record<string, unknown>; relations?: Record<string, string | string[] | null> }
 export type ImportMedia = { key: string; path: string; sha256: string; alt?: string; url?: string }
+export type ImportDocument = { key: string; path: string; sha256: string; title: string; url: string }
 export type ImportMediaURL = { key: string; url: string }
 export type ImportSource = { kind: 'joomla-dump' | 'public-pages' | 'demo'; manifestHash: string; capturedAt: string; complete: boolean }
-export type ImportBundle = { version: 1; source: ImportSource; media: ImportMedia[]; mediaUrls?: ImportMediaURL[]; entities: ImportEntity[]; settings?: Record<string, unknown> }
+export type ImportBundle = { version: 1; source: ImportSource; media: ImportMedia[]; documents?: ImportDocument[]; mediaUrls?: ImportMediaURL[]; entities: ImportEntity[]; settings?: Record<string, unknown> }
 export class ImportError extends Error { constructor(message: string) { super(message); this.name = 'ImportError' } }
 
 type Scalar =
@@ -159,6 +160,8 @@ export type ValidatedBundle = {
   bundle: ImportBundle
   entities: PreparedEntity[]
   media: ImportMedia[]
+  documents: ImportDocument[]
+  documentByPath: Map<string, string>
   mediaByPath: Map<string, string>
   settings?: Record<string, unknown>
   shadowed: Array<{ id: string; route: string }>
@@ -309,7 +312,7 @@ function prepareSettings(raw: unknown, mediaKeys: Set<string>): Record<string, u
 /** Pure validation of the whole bundle. Throws before the caller performs any database read or write. */
 export function validateBundle(value: unknown): ValidatedBundle {
   if (!record(value) || value.version !== 1 || !record(value.source) || !['joomla-dump', 'public-pages', 'demo'].includes(String(value.source.kind)) || typeof value.source.complete !== 'boolean' || !/^[a-f0-9]{64}$/.test(String(value.source.manifestHash)) || !Number.isFinite(Date.parse(String(value.source.capturedAt))) || !Array.isArray(value.entities) || !Array.isArray(value.media)) throw new ImportError('Invalid source bundle header.')
-  if (Object.keys(value).some(name => !['version', 'source', 'media', 'mediaUrls', 'entities', 'settings'].includes(name))) throw new ImportError('Unsupported bundle section.')
+  if (Object.keys(value).some(name => !['version', 'source', 'media', 'mediaUrls', 'documents', 'entities', 'settings'].includes(name))) throw new ImportError('Unsupported bundle section.')
   if (value.entities.length > 100_000 || value.media.length > 100_000) throw new ImportError('Bundle exceeds supported entity limit.')
 
   const mediaKeys = new Set<string>(), mediaByPath = new Map<string, string>()
@@ -342,6 +345,17 @@ export function validateBundle(value: unknown): ValidatedBundle {
     if ('path' in resolved && !mediaByPath.has(resolved.path)) mediaByPath.set(resolved.path, media.key)
   }
 
+  const documents = value.documents ?? []
+  if (!Array.isArray(documents) || documents.length > 10_000) throw new ImportError('documents: expected bounded list')
+  const documentKeys = new Set<string>(), documentByPath = new Map<string, string>()
+  documents.forEach((doc, index) => {
+    const label = `document #${index}`
+    if (!record(doc) || Object.keys(doc).some(name => !['key','path','sha256','title','url'].includes(name)) || !isKey(doc.key) || typeof doc.path !== 'string' || doc.path.length > 1024 || doc.path.startsWith('/') || doc.path.split('/').some(part => ['..','.',''].includes(part) || part.startsWith('.env')) || /[\\]/.test(doc.path) || CONTROL.test(doc.path) || !/\.pdf$/i.test(doc.path) || !/^[a-f0-9]{64}$/.test(String(doc.sha256)) || typeof doc.title !== 'string' || !doc.title.trim() || doc.title.length > 300 || CONTROL.test(doc.title) || typeof doc.url !== 'string' || /[?#]/.test(doc.url)) throw new ImportError(`${label}: invalid public document descriptor`)
+    const source = mediaSourcePath(doc.url)
+    if (!('path' in source) || !/\.pdf$/i.test(source.path)) throw new ImportError(`${label}: expected a safe own-site PDF URL`)
+    if (documentKeys.has(doc.key) || documentByPath.has(source.path)) throw new ImportError(`${label}: duplicate source identifier or URL`)
+    documentKeys.add(doc.key); documentByPath.set(source.path, doc.key)
+  })
   const entities = value.entities.map((entity, index) => prepareEntity(entity, index, mediaKeys))
   const ids = new Set<string>(), routes = new Map<string, string>(), unique = new Map<string, string>()
   for (const entity of entities) {
@@ -371,7 +385,7 @@ export function validateBundle(value: unknown): ValidatedBundle {
   }
   const shadowed = entities.flatMap(entity => entity.routes.filter(route => shadowedRoute(route, entity.collection, entity.data.legacyPath)).map(route => ({ id: entity.id, route })))
   const settings = value.settings == null ? undefined : prepareSettings(value.settings, mediaKeys)
-  return { bundle: value as unknown as ImportBundle, entities: orderedEntities(entities), media: [...value.media as ImportMedia[]].sort((a, b) => compare(a.key, b.key)), mediaByPath, settings, shadowed }
+  return { bundle: value as unknown as ImportBundle, entities: orderedEntities(entities), media: [...value.media as ImportMedia[]].sort((a, b) => compare(a.key, b.key)), documents: [...documents as ImportDocument[]].sort((a, b) => compare(a.key, b.key)), documentByPath, mediaByPath, settings, shadowed }
 }
 
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0

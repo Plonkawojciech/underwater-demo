@@ -1,6 +1,6 @@
 import sanitizeHtml from 'sanitize-html'
 
-export function sanitizeContent(raw: string | null | undefined, resolveMedia?: (src: string) => string | undefined): string {
+export function sanitizeContent(raw: string | null | undefined, resolveMedia?: (src: string) => string | undefined, resolveLink?: (href: string) => string): string {
   if (!raw) return ''
   if (raw.length > 1_000_000) throw new Error('Content exceeds the permitted size.')
   return sanitizeHtml(raw, {
@@ -11,6 +11,7 @@ export function sanitizeContent(raw: string | null | undefined, resolveMedia?: (
     transformTags: {
       a: (_tag, attributes) => {
         let href = attributes.href || ''
+        if (resolveLink) href = resolveLink(href)
         try { const url = new URL(href); if (['underwater.pl', 'www.underwater.pl'].includes(url.hostname)) href = `${url.pathname}${url.search}${url.hash}` } catch { /* Relative links remain relative. */ }
         return { tagName: 'a', attribs: { href, ...(attributes.title ? { title: attributes.title } : {}), rel: 'noopener noreferrer' } }
       },

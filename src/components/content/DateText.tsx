@@ -20,12 +20,12 @@ export function DateText({ value, format = 'long', className }: { value?: string
 }
 
 /** "12–19 października 2026" for trips and multi-day courses. Falls back to the start date alone. */
-export function DateRange({ from, to, className }: { from?: string | Date | null; to?: string | Date | null; className?: string }) {
+export function DateRange({ from, to, className, showTime = false }: { from?: string | Date | null; to?: string | Date | null; className?: string; showTime?: boolean }) {
   const a = parse(from)
   const b = parse(to)
   if (!a) return null
-  if (!b || b.getTime() <= a.getTime()) return <DateText value={a} className={className} />
-  const fmt = new Intl.DateTimeFormat('pl-PL', FORMATS.long)
+  if (!b || b.getTime() <= a.getTime()) return <DateText value={a} format={showTime ? 'datetime' : 'long'} className={className} />
+  const fmt = new Intl.DateTimeFormat('pl-PL', showTime ? FORMATS.datetime : FORMATS.long)
   const text = typeof fmt.formatRange === 'function' ? fmt.formatRange(a, b) : `${fmt.format(a)} – ${fmt.format(b)}`
   return (
     <span className={className}>

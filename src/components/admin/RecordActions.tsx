@@ -1,15 +1,32 @@
 'use client'
 import { useState, useId } from 'react'
-import { useAuth, useDocumentInfo } from '@payloadcms/ui'
+import { useAuth, useDocumentInfo, useFormFields } from '@payloadcms/ui'
 
 const OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
-  orders: [{ value: 'shipped', label: 'Oznacz jako wysłane (testowo)' }, { value: 'cancelled', label: 'Anuluj i zwolnij rezerwację' }],
+  orders: [
+    { value: 'bank-paid', label: 'Potwierdź wpływ przelewu (symulacja testowa)' },
+    { value: 'shipped', label: 'Oznacz jako wysłane (testowo)' },
+    { value: 'cod-collected', label: 'Potwierdź pobranie przy odbiorze (symulacja testowa)' },
+    { value: 'cancelled', label: 'Anuluj i zwolnij rezerwację' },
+  ],
   signups: [{ value: 'contacted', label: 'Skontaktowano' }, { value: 'enrolled', label: 'Zapisany' }, { value: 'rejected', label: 'Odrzuć i zwolnij miejsce' }],
   contacts: [{ value: 'contacted', label: 'Skontaktowano' }, { value: 'closed', label: 'Zamknięta' }],
 }
 export default function RecordActions() {
   const { collectionSlug, id } = useDocumentInfo(), { user } = useAuth()
-  const options = OPTIONS[collectionSlug || ''] || []
+  const paymentMethod = useFormFields(([fields]) => fields.paymentMethod?.value)
+  const recordStatus = useFormFields(([fields]) => fields.status?.value)
+  const paymentStatus = useFormFields(([fields]) => fields.paymentStatus?.value)
+  // Present only possible order actions; the service enforces state and role again.
+  const options = (OPTIONS[collectionSlug || ''] || []).filter(option => {
+    if (collectionSlug !== 'orders') return true
+    const method = paymentMethod || 'online'
+    if (option.value === 'bank-paid') return method === 'bank_transfer' && recordStatus === 'new' && paymentStatus === 'pending'
+    if (option.value === 'cod-collected') return method === 'cod' && recordStatus === 'shipped' && paymentStatus === 'pending'
+    if (option.value === 'shipped') return ['new', 'paid'].includes(String(recordStatus)) && (paymentStatus === 'paid' || method === 'cod' && paymentStatus === 'pending')
+    if (option.value === 'cancelled') return recordStatus === 'new' && paymentStatus === 'pending'
+    return false
+  })
   const [status, setStatus] = useState(''), [pending, setPending] = useState(false), [message, setMessage] = useState('')
   const label = useId()
   if (!id || !options.length || !['admin', 'operations'].includes(String(user?.role))) return null

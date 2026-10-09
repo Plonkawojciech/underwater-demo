@@ -86,6 +86,7 @@ export interface Config {
     'import-runs': ImportRun;
     'audit-events': AuditEvent;
     media: Media;
+    documents: Document;
     users: User;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
@@ -113,6 +114,7 @@ export interface Config {
     'import-runs': ImportRunsSelect<false> | ImportRunsSelect<true>;
     'audit-events': AuditEventsSelect<false> | AuditEventsSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
+    documents: DocumentsSelect<false> | DocumentsSelect<true>;
     users: UsersSelect<false> | UsersSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -166,6 +168,7 @@ export interface UserAuthOperations {
 export interface Product {
   id: number;
   name: string;
+  searchText?: string | null;
   vmId: number;
   /**
    * Np. 3625-maska-soprastek-corona
@@ -578,6 +581,23 @@ export interface Order {
   currency?: 'PLN' | null;
   deliveryMethod?: string | null;
   deliveryLabel?: string | null;
+  deliveryKind?: ('courier' | 'pickup_point' | 'pickup') | null;
+  /**
+   * Punkt wpisany ręcznie przez klienta; brak integracji i weryfikacji przewoźnika.
+   */
+  pickupPointId?: string | null;
+  pickupPointName?: string | null;
+  pickupPointAddress?: string | null;
+  deliveryBaseCents?: number | null;
+  paymentSurchargeCents?: number | null;
+  freeShippingThresholdCents?: number | null;
+  freeShippingApplied?: boolean | null;
+  /**
+   * Puste w starszych zamówieniach = płatność online.
+   */
+  paymentMethod?: ('online' | 'bank_transfer' | 'cod') | null;
+  paymentLabel?: string | null;
+  reservationMinutes?: number | null;
   status?: ('new' | 'paid' | 'shipped' | 'cancelled' | 'expired') | null;
   paymentStatus?: ('pending' | 'paid' | 'failed' | 'cancelled' | 'expired') | null;
   paymentReviewRequired?: boolean | null;
@@ -587,6 +607,8 @@ export interface Order {
   accessTokenHash?: string | null;
   expiresAt?: string | null;
   paidAt?: string | null;
+  shippedAt?: string | null;
+  codCollectedAt?: string | null;
   privacyAccepted: boolean;
   termsAccepted: boolean;
   consentVersion?: string | null;
@@ -654,6 +676,10 @@ export interface Contact {
   privacyAccepted: boolean;
   consentVersion?: string | null;
   status?: ('new' | 'contacted' | 'closed') | null;
+  contextKind?: ('product' | 'trip') | null;
+  contextID?: number | null;
+  contextTitle?: string | null;
+  contextPath?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -774,6 +800,31 @@ export interface User {
   collection: 'users';
 }
 /**
+ * Wyłącznie publiczne materiały do pobrania. Dokumenty klienta i dane prywatne nie trafiają do tej kolekcji.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "documents".
+ */
+export interface Document {
+  id: number;
+  title: string;
+  legacyKey?: string | null;
+  legacyPath?: string | null;
+  sourceHash?: string | null;
+  importRun?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -874,6 +925,10 @@ export interface PayloadLockedDocument {
         value: number | Media;
       } | null)
     | ({
+        relationTo: 'documents';
+        value: number | Document;
+      } | null)
+    | ({
         relationTo: 'users';
         value: number | User;
       } | null);
@@ -925,6 +980,7 @@ export interface PayloadMigration {
  */
 export interface ProductsSelect<T extends boolean = true> {
   name?: T;
+  searchText?: T;
   vmId?: T;
   slug?: T;
   category?: T;
@@ -1271,6 +1327,17 @@ export interface OrdersSelect<T extends boolean = true> {
   currency?: T;
   deliveryMethod?: T;
   deliveryLabel?: T;
+  deliveryKind?: T;
+  pickupPointId?: T;
+  pickupPointName?: T;
+  pickupPointAddress?: T;
+  deliveryBaseCents?: T;
+  paymentSurchargeCents?: T;
+  freeShippingThresholdCents?: T;
+  freeShippingApplied?: T;
+  paymentMethod?: T;
+  paymentLabel?: T;
+  reservationMinutes?: T;
   status?: T;
   paymentStatus?: T;
   paymentReviewRequired?: T;
@@ -1280,6 +1347,8 @@ export interface OrdersSelect<T extends boolean = true> {
   accessTokenHash?: T;
   expiresAt?: T;
   paidAt?: T;
+  shippedAt?: T;
+  codCollectedAt?: T;
   privacyAccepted?: T;
   termsAccepted?: T;
   consentVersion?: T;
@@ -1341,6 +1410,10 @@ export interface ContactsSelect<T extends boolean = true> {
   privacyAccepted?: T;
   consentVersion?: T;
   status?: T;
+  contextKind?: T;
+  contextID?: T;
+  contextTitle?: T;
+  contextPath?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1461,6 +1534,28 @@ export interface MediaSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "documents_select".
+ */
+export interface DocumentsSelect<T extends boolean = true> {
+  title?: T;
+  legacyKey?: T;
+  legacyPath?: T;
+  sourceHash?: T;
+  importRun?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "users_select".
  */
 export interface UsersSelect<T extends boolean = true> {
@@ -1541,15 +1636,45 @@ export interface Setting {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  /**
+   * Tryb testowy: żadna metoda nie nadaje przesyłki ani nie pobiera stawek przewoźnika. Ceny wpisuje obsługa.
+   */
   deliveryMethods?:
     | {
         key: string;
         label: string;
         priceCents: number;
         enabled?: boolean | null;
+        /**
+         * Puste pole w starszych wpisach działa jak kurier (adres wymagany).
+         */
+        kind?: ('courier' | 'pickup_point' | 'pickup') | null;
+        /**
+         * Tylko kurier i punkt odbioru. Wymaga włączenia pobrania w płatnościach testowych.
+         */
+        codAllowed?: boolean | null;
         id?: string | null;
       }[]
     | null;
+  /**
+   * Puste = brak progu. Próg dotyczy wartości produktów; nie znosi dopłaty za pobranie.
+   */
+  freeShippingThresholdCents?: number | null;
+  /**
+   * Płatność online jest zawsze dostępna jako symulacja. Przelew i pobranie są wyłączone, dopóki nie zostaną tu jawnie włączone; status zmienia wyłącznie zalogowana obsługa z wpisem w historii operacji.
+   */
+  testPayments?: {
+    bankTransferEnabled?: boolean | null;
+    codEnabled?: boolean | null;
+    /**
+     * Wymagane po włączeniu przelewu lub pobrania: 60–20160 min (do 14 dni). Brak wartości wyłącza obie metody. Testy używają 2880 (48 h).
+     */
+    offlineReservationMinutes?: number | null;
+    /**
+     * Puste = bez dopłaty.
+     */
+    codSurchargeCents?: number | null;
+  };
   nip?: string | null;
   facebook?: string | null;
   youtube?: string | null;
@@ -1576,7 +1701,18 @@ export interface SettingsSelect<T extends boolean = true> {
         label?: T;
         priceCents?: T;
         enabled?: T;
+        kind?: T;
+        codAllowed?: T;
         id?: T;
+      };
+  freeShippingThresholdCents?: T;
+  testPayments?:
+    | T
+    | {
+        bankTransferEnabled?: T;
+        codEnabled?: T;
+        offlineReservationMinutes?: T;
+        codSurchargeCents?: T;
       };
   nip?: T;
   facebook?: T;

@@ -108,6 +108,7 @@ h1,h2,h3,h4{overflow-wrap:break-word}
 .drawer a:focus-visible{outline-offset:-3px}
 .drawer-n,.drawer-tel{font-family:var(--font-mono),monospace;font-variant-numeric:tabular-nums}
 .drawer-n{font-size:13px;color:var(--brass-lift)}
+.drawer-txt{display:block;padding:14px var(--gut);border-top:1px solid var(--edge-soft);color:var(--haze);font-size:17px}
 
 /* hero */
 .hero{position:relative;background:var(--abyss);color:#fff;min-height:min(88vh,760px);display:flex;align-items:flex-end;overflow:hidden}
@@ -252,7 +253,7 @@ h1,h2,h3,h4{overflow-wrap:break-word}
 .chip input{position:absolute;opacity:0;width:0;height:0}
 .chip:has(input:focus-visible){outline:2px solid var(--focus);outline-offset:3px}
 .chip-on{border-color:var(--ink);background:var(--ink);color:var(--shell)}
-/* wariant bez stanu: wybieralny, żeby było widać, czego brakuje; czytelny kontrast */
+/* wariant ze znanym zerowym stanem: wybieralny, żeby było widać, czego brakuje; brak danych o stanie nie jest przekreślany */
 .chip-off{border-style:dashed;color:var(--mist);text-decoration:line-through;text-decoration-thickness:1px}
 .chip-off.chip-on{background:transparent;color:var(--ink);border-color:var(--ink);border-style:dashed}
 .buy-row{display:flex;gap:12px;flex-wrap:wrap}
@@ -317,6 +318,14 @@ h1,h2,h3,h4{overflow-wrap:break-word}
 .form-row{display:grid;gap:16px;grid-template-columns:1fr 1fr}
 @media(max-width:520px){.form-row{grid-template-columns:1fr}}
 .form-err{color:#B3261E;font-size:14px;margin:0}
+/* czego dotyczy wiadomość: rekord odczytany na serwerze, link do niego i wyjście bez kontekstu */
+.enquiry{display:grid;gap:6px;justify-items:start;padding:16px 18px;background:var(--paper);border:1px solid var(--ink-edge);border-left:2px solid var(--brass)}
+.enquiry p{margin:0}
+.enquiry-k{font-family:var(--font-mono),monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mist)}
+.enquiry-t{font-family:var(--font-display),Georgia,serif;font-size:20px;line-height:1.25;overflow-wrap:anywhere}
+.enquiry-t .textlink{font-size:inherit;font-weight:400}
+.enquiry-x{margin-top:4px;font-size:13px;color:var(--mist);text-decoration:underline;text-underline-offset:3px}
+.enquiry-x:hover{color:var(--ink)}
 .done{border:1px solid var(--brass);background:#FBF5EC;padding:26px}
 .done.big{padding:44px;display:grid;gap:16px;justify-items:start}
 
@@ -491,6 +500,11 @@ main:focus{outline:none}
 .band-d{font-size:13px;color:#CFE0E7;margin:0 0 14px;letter-spacing:.04em}
 .topline span a{color:inherit}
 .topline span a:hover{color:#fff}
+.topline .topline-tel a{color:#D5E2E8}
+/* komunikat z ustawień: zwykły tekst, statyczny (bez przewijania), zawija się na telefonie */
+.site-banner{background:var(--deep);color:#E4EDF1;border-bottom:1px solid var(--brass)}
+.site-banner p{margin:0;padding-top:10px;padding-bottom:10px;font-size:14px;line-height:1.45;overflow-wrap:break-word}
+@media(max-width:700px){.site-banner p{font-size:13px;padding-top:8px;padding-bottom:8px}}
 
 /* kalendarz: data w kolumnie, w której na drabinie stoi głębokość */
 .cal .rowlink .cal-d{font-size:19px;letter-spacing:0;white-space:nowrap}
@@ -498,6 +512,8 @@ main:focus{outline:none}
 .cal-m+.cal-m{margin-top:52px}
 .cal-h{margin:0 0 16px}
 .cal-h::first-letter{text-transform:uppercase}
+/* rodzaj terminu: kurs, wyprawa albo wydarzenie z kalendarza */
+.cal-k{display:block;margin-bottom:4px;font-family:var(--font-mono),monospace;font-size:12px;color:var(--brass-ink)}
 .monthnav{display:flex;flex-wrap:wrap;gap:6px 22px;margin:28px 0 40px}
 .monthnav a{display:inline-flex;align-items:center;min-height:44px;border-bottom:1px solid currentColor;font-size:15px}
 .monthnav a:first-child::before{content:"‹";margin-right:8px}
@@ -527,6 +543,8 @@ main:focus{outline:none}
 .trip-d{font-size:13px;color:var(--brass-ink)}
 .trip-x{color:#2C4049;font-size:15px;max-width:62ch}
 .trip-p{margin-top:8px;font-size:16px}
+.trips-note{margin:-12px 0 28px;font-size:17px;max-width:62ch}
+.filters-n{margin-left:8px;font-family:var(--font-mono),monospace;font-size:12px;font-variant-numeric:tabular-nums;opacity:.8}
 
 /* galerie: zdjęcia oglądane na granacie */
 .albums{list-style:none;margin:40px 0 0;padding:0;display:grid;gap:32px 20px;grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr))}
@@ -543,6 +561,7 @@ main:focus{outline:none}
 .album img{width:100%;height:100%;object-fit:cover}
 .album button:focus-visible{outline-offset:2px}
 .album-cap{margin:6px 0 0;font-size:13px;line-height:1.4;color:var(--mist)}
+.album-more{margin:20px 0 0}
 .dark .album-cap,.dark .arc-m{color:var(--haze)}
 .lightbox{width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;background:rgba(4,18,26,.97);color:#E4EDF1;--focus:var(--brass-lift)}
 .lightbox::backdrop{background:rgba(4,18,26,.9)}

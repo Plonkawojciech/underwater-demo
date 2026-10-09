@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { createContext, useContext, useEffect, useId, useRef, useState } from 'react'
-import { formatMoney, type Price } from '@/lib/presentation'
+import { enquiryHref, formatMoney, STOCK_LABEL, stockState, type Price } from '@/lib/presentation'
 import { clampQty, MAX_LINE_QTY, sameLine, useCart } from './cart'
 
 /**
@@ -64,7 +64,8 @@ export function AddToCart({ product, variants, note }: {
   const { setImage } = useContext(VariantCtx)
   const uid = useId()
   const [selected, setSelected] = useState(() => {
-    const first = variants.find((v) => stockOf(v.stock) > 0) || variants[0]
+    // In stock first, then unknown (enquiry), and a known zero only when nothing else exists.
+    const first = variants.find((v) => stockState(v.stock) === 'in') || variants.find((v) => stockState(v.stock) === 'unknown') || variants[0]
     return first ? variantKey(first) : undefined
   })
   const [qty, setQty] = useState(1)
@@ -75,8 +76,8 @@ export function AddToCart({ product, variants, note }: {
 
   const chosen = variants.find((v) => variantKey(v) === selected)
   // UI cap only. The server re-checks stock and price when the order is quoted and placed.
-  const stock = variants.length ? stockOf(chosen?.stock) : stockOf(product.stock)
-  const unknownStock = variants.length ? chosen?.stock == null : product.stock == null
+  const state = stockState(variants.length ? chosen?.stock : product.stock)
+  const stock = state === 'in' ? stockOf(variants.length ? chosen?.stock : product.stock) : 0
   const price = variants.length ? chosen?.price ?? product.price : product.price
   const lineId = { id: product.id, variant: chosen?.label, variantId: chosen?.id || undefined }
   const inCart = lines.find((l) => sameLine(l, lineId))?.qty ?? 0
@@ -108,12 +109,13 @@ export function AddToCart({ product, variants, note }: {
     timer.current = setTimeout(() => setStatus(''), 6000)
   }
 
-  const availability = unknownStock
-    ? <>Dostępność do potwierdzenia. <Link href="/kontakt.html" className="textlink">Zapytaj sklep</Link></>
-    : !stock
-    ? <>Chwilowo niedostępny. <Link href="/kontakt.html" className="textlink">Zapytaj o termin</Link></>
+  // Enquiry instead of a dead button: the message names this product by id; the server reads it again.
+  const enquiry = enquiryHref('product', product.id)
+  const ask = state === 'unknown' ? 'Zapytaj o dostępność' : state === 'out' ? 'Zapytaj sklep' : price.current === null ? 'Zapytaj o cenę' : null
+  const availability = state !== 'in'
+    ? <>{STOCK_LABEL[state]}.{state === 'unknown' ? ' Zamówienie przez sklep internetowy jest możliwe, gdy stan produktu jest znany.' : ''}</>
     : price.current === null
-      ? <>Ten wariant nie ma ceny w katalogu. <Link href="/kontakt.html" className="textlink">Zapytaj sklep</Link></>
+      ? <>{variants.length ? 'Ten wariant nie ma' : 'Ten produkt nie ma'} ceny w katalogu.</>
     : !canBuy
       ? <>W koszyku masz już całą dostępną ilość ({inCart} szt.).</>
       : <>Dostępne: {stock} szt.{inCart ? ` W koszyku: ${inCart} szt.` : ''}</>
@@ -127,16 +129,20 @@ export function AddToCart({ product, variants, note }: {
           <legend>Wariant</legend>
           {variants.map((v) => {
             const k = variantKey(v)
-            const out = stockOf(v.stock) === 0
+            // Only a known zero is crossed out; a variant without stock data stays a normal choice.
+            const out = stockState(v.stock) === 'out'
             return (
               <label key={k} className={'chip' + (selected === k ? ' chip-on' : '') + (out ? ' chip-off' : '')}>
                 <input type="radio" name={`variant-${uid}`} value={k} checked={selected === k} onChange={() => { setSelected(k); setDraft(null); setImage(v.image) }} />
-                {v.label}{out ? <span className="sr-only">, niedostępny</span> : null}
+                {v.label}{out ? <span className="sr-only">, chwilowo niedostępny</span> : null}
               </label>
             )
           })}
         </fieldset>
       )}
+      {ask ? (
+        <div className="buy-row"><Link href={enquiry} className="btn btn-solid">{ask}</Link></div>
+      ) : (
       <div className="buy-row">
         <div className="qty" role="group" aria-labelledby={`${uid}-qty`}>
           <span id={`${uid}-qty`} className="sr-only">Ilość</span>
@@ -156,14 +162,13 @@ export function AddToCart({ product, variants, note }: {
           />
           <button type="button" onClick={() => { setDraft(null); setQty(q + 1) }} disabled={!canBuy || q >= remaining} aria-label="Zwiększ ilość">+</button>
         </div>
-        <button type="button" className="btn btn-solid" disabled={!canBuy} onClick={onAdd}>
-          {stock ? 'Dodaj do koszyka' : 'Chwilowo niedostępny'}
-        </button>
+        <button type="button" className="btn btn-solid" disabled={!canBuy} onClick={onAdd}>Dodaj do koszyka</button>
       </div>
+      )}
       <p className="buy-note">{availability}</p>
       <p className="buy-status" role="status">
         {status === 'error'
-          ? <span className="form-err">Nie udało się dodać produktu do koszyka. Odśwież stronę i spróbuj ponownie albo <Link href="/kontakt.html" className="textlink">napisz do sklepu</Link>.</span>
+          ? <span className="form-err">Nie udało się dodać produktu do koszyka. Odśwież stronę i spróbuj ponownie albo <Link href={enquiry} className="textlink">napisz do sklepu</Link>.</span>
           : status ? <>{status} <Link href="/koszyk" className="textlink">Przejdź do koszyka</Link></> : null}
       </p>
       {note ? <div className="buy-note">{note}</div> : null}

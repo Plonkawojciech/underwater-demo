@@ -25,6 +25,7 @@ const payload = await getPayload({ config, disableOnInit: true });
 try {
  const counts = {};
  for (const collection of ['categories','products','courses','course-sessions','pages','trips','albums','events','redirects','media','users','orders','signups','contacts','newsletter','outbox','import-runs']) counts[collection] = (await payload.count({ collection, overrideAccess: true })).totalDocs;
+ if (payload.collections.documents) counts.documents = (await payload.count({ collection: 'documents', overrideAccess: true })).totalDocs;
  console.log(JSON.stringify({ environment: 'preview', counts }));
 } finally { await payload.destroy(); }
 '''
@@ -70,7 +71,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['bootstrap', 'counts', 'dry-run', 'import'])
     parser.add_argument('commit', help='Exact reviewed and deployed 40-character commit')
-    parser.add_argument('--bundle', choices=['priority', 'public'])
+    parser.add_argument('--bundle', choices=['priority', 'public', 'public-final'])
     args = parser.parse_args()
     if not re.fullmatch(r'[a-f0-9]{40}', args.commit): raise ValueError('An exact reviewed commit is required.')
     supplied = {}

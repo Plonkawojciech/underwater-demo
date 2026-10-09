@@ -16,7 +16,7 @@ Ceny zapisujemy w złotych i groszach; panel utrzymuje ich zgodność. Wariant m
 
 Korektę stanu wykonuj przez „Korekta magazynu”, wpisując potwierdzoną ilość. Zmiana zapisuje autora oraz wartość przed i po w Historii operacji. Zwykłe zapisanie produktu nie może nadpisać rezerwacji magazynowej. Gdy stan zmienił się w międzyczasie, odśwież produkt i ponów korektę na aktualnych danych.
 
-Zamówienie oczekujące rezerwuje towar na 30 minut. Anulowanie, błąd lub wygaśnięcie zwalnia go jednokrotnie. Duplikat powiadomienia nie rezerwuje ponownie. Spóźniona płatność po zamknięciu trafia do sprawdzenia przez obsługę. W podglądzie żaden status nie oznacza rzeczywistego pobrania pieniędzy ani nadania przesyłki.
+Oczekujące zamówienie online rezerwuje towar na 30 minut; przelew i pobranie mają czas ustawiony w panelu. Anulowanie, błąd lub wygaśnięcie zwalnia go jednokrotnie. Duplikat powiadomienia nie rezerwuje ponownie. Spóźniona płatność po zamknięciu trafia do sprawdzenia przez obsługę. W podglądzie żaden status nie oznacza rzeczywistego pobrania pieniędzy ani nadania przesyłki.
 
 Zgłoszenie kursowe wymaga potwierdzenia adresu e-mail. Link znajdziesz w „Skrzynce testowej”. Potwierdzenie adresu nie zastępuje akceptacji zgłoszenia przez obsługę. Terminy bez potwierdzonego limitu zbierają zgłoszenia bez deklarowania liczby wolnych miejsc. Odrzucenie lub wygaśnięcie zwalnia przydzielone miejsce jednokrotnie.
 
@@ -29,3 +29,17 @@ Administrator uzupełnia dane kontaktowe, nagłówek, obraz główny i metody do
 Importy pokazują wynik uzgodnienia i historię prób. Publiczny crawl pozostaje oznaczony jako niepełne źródło bazy. Ponowny import chroni ręczne poprawki i bieżące stany; konflikty wymagają uzgodnienia, nie resetu rekordów. Nie kasuj rekordów ani mediów w celu usunięcia konfliktu.
 
 Przyszłe uruchomienie operatora, prawdziwej poczty, analityki i migracja do klienta wymagają odpowiednich danych i osobnego etapu. Obecny runtime dopuszcza wyłącznie podgląd/test/build.
+
+## PDF i zapytania o ofertę
+
+Publiczne materiały do pobrania mają oddzielną kolekcję „Dokumenty PDF”. Maksimum to 8 MB i 1000 stron; parser odrzuca szyfrowanie, aktywne akcje, załączniki oraz niejednoznaczne definicje obiektów. Na VM pracuje osobny proces bez sekretów aplikacji, z limitem całej pamięci adresowej i czasu. Importowane bajty są niezmienne: można poprawić tytuł, ale nowy plik wymaga nowego dokumentu. Źródłowe adresy PDF pozostają aktywne przez własną kopię.
+
+„Zapytaj o produkt” i „Zapytaj o wyprawę” przekazują do kontaktu kontekst potwierdzony na serwerze: opublikowany rekord, jego tytuł i adres. Wiadomość pojawia się w panelu i skrzynce testowej. Wyszukiwarka normalizuje polskie wielkie litery oraz SKU.
+
+## Płatności offline i dostawa
+
+Płatność online rezerwuje towar na 30 minut. Przelew i pobranie zaczynają wyłączone; administrator włącza je w „Płatnościach testowych” wraz z jawnym czasem rezerwacji od 60 do 20160 minut. Podgląd nie podaje rachunku ani nie przyjmuje pieniędzy. W panelu zalogowana obsługa może potwierdzić symulowany wpływ przelewu; klient z linkiem może tylko anulować oczekujące zamówienie.
+
+Metoda dostawy ma rodzaj: kurier wymaga adresu, punkt odbioru wymaga ręcznie wpisanego kodu, nazwy i adresu, odbiór osobisty nie wymaga adresu. Wpisany punkt nie stanowi potwierdzenia przez przewoźnika. Cenę, możliwość pobrania, dopłatę oraz próg bezpłatnej dostawy ustawia administrator. Serwer oblicza grosze i zapisuje wybraną konfigurację z zamówieniem.
+
+Przelew trzeba potwierdzić przed testowym nadaniem. Pobranie można potwierdzić dopiero po testowym nadaniu COD. Nadane zamówienie nie wygasa ani nie zwalnia towaru przez anulowanie. Każda czynność obsługi zapisuje autora w Historii operacji. Zwrot po nadaniu, odmowa przyjęcia, zwrot pieniędzy i wysyłka częściowa wymagają osobnej procedury uzgodnionej z docelowym operatorem oraz przewoźnikiem.

@@ -22,7 +22,7 @@ def download(row):
     raise last_error or ValueError('No public image URL.')
 
 
-def prefetch(rows, cached, fetcher=download, workers=3):
+def prefetch(rows, cached, fetcher=download, workers=3, cached_only=False, blocked_keys=None):
     if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 3:
         raise ValueError('Public-image concurrency must be between one and three.')
     iterator = iter(enumerate(rows))
@@ -36,13 +36,14 @@ def prefetch(rows, cached, fetcher=download, workers=3):
             except StopIteration:
                 return False
             previous = cached(row)
-            pending.append((index, row, previous, None if previous else pool.submit(fetcher, row)))
+            pending.append((index, row, previous, None if previous or cached_only or row['key'] in (blocked_keys or set()) else pool.submit(fetcher, row)))
             return True
         for _ in range(workers * 2):
             if not submit(): break
         while pending:
             index, row, previous, future = pending.popleft()
-            body, error = None, None
+            body = None
+            error = FileNotFoundError('No verified cached image.') if cached_only and not previous else PermissionError('Archived source failure was not retried.') if not previous and row['key'] in (blocked_keys or set()) else None
             if future:
                 try: body = future.result()
                 except Exception as failure: error = failure

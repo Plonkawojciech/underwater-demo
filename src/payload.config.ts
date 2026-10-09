@@ -1,3 +1,4 @@
+import { withPolishCMSLabels } from './lib/cms-labels'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { pl } from '@payloadcms/translations/languages/pl'
 import path from 'path'
@@ -10,6 +11,7 @@ import { leasedSqliteAdapter } from './lib/sqlite-adapter'
 
 import { Users } from './collections/Users'
 import { Media } from './collections/Media'
+import { Documents } from './collections/Documents'
 import { Categories } from './collections/Categories'
 import { Products } from './collections/Products'
 import { Courses } from './collections/Courses'
@@ -41,8 +43,8 @@ export default buildConfig({
     components: { graphics: { Logo: '@/components/admin/Logo', Icon: '@/components/admin/Icon' } },
   },
   i18n: { supportedLanguages: { pl }, fallbackLanguage: 'pl' },
-  collections: [Products, Categories, Courses, CourseSessions, Pages, Trips, Albums, Events, Signups, Orders, PaymentAttempts, PaymentEvents, Outbox, Contacts, Newsletter, Redirects, ImportRuns, AuditEvents, Media, Users],
-  globals: [Settings],
+  collections: [Products, Categories, Courses, CourseSessions, Pages, Trips, Albums, Events, Signups, Orders, PaymentAttempts, PaymentEvents, Outbox, Contacts, Newsletter, Redirects, ImportRuns, AuditEvents, Media, Documents, Users].map(withPolishCMSLabels),
+  globals: [Settings].map(withPolishCMSLabels),
   editor: lexicalEditor(),
   secret: runtime.secret,
   typescript: { outputFile: path.resolve(dirname, 'payload-types.ts') },

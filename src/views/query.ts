@@ -2,7 +2,7 @@ import { runtimeOrigin } from '@/lib/origin'
 import { cache } from 'react'
 import type { Where } from 'payload'
 import { db } from '@/lib/data'
-import { legalRole, type LegalLink, type PageDoc, type SettingsDoc, contentHref } from '@/lib/presentation'
+import { legalRole, type LegalLink, type MediaRef, type PageDoc, type SettingsDoc, contentHref } from '@/lib/presentation'
 
 // Every public read goes through this module: access control on (anonymous user, so
 // drafts stay hidden), an explicit published filter as a second guard, and bounded
@@ -53,6 +53,22 @@ export async function publicFind<T>(collection: PublicCollection, a: FindArgs): 
 export async function publicFirst<T>(collection: PublicCollection, where: Where, depth: number): Promise<T | null> {
   const r = await publicFind<T>(collection, { where, limit: 1, depth })
   return r.docs[0] ?? null
+}
+
+const MAX_MEDIA = 100
+type MediaDoc = Exclude<MediaRef, number | null | undefined>
+
+/**
+ * Media documents by id, for one gallery page or a set of album covers. Media has no
+ * `published` field, so the published guard does not apply; collection read access stays on.
+ */
+export async function publicMedia(ids: (number | null)[]): Promise<Map<number, MediaDoc>> {
+  const unique = [...new Set(ids.filter((n): n is number => Number.isSafeInteger(n) && (n as number) > 0))].slice(0, MAX_MEDIA)
+  if (!unique.length) return new Map()
+  const r = await (await api()).find({
+    collection: 'media', where: { id: { in: unique } }, limit: unique.length, depth: 0, overrideAccess: false, draft: false,
+  })
+  return new Map((r.docs as (MediaDoc & { id: number })[]).map((m) => [m.id, m]))
 }
 
 export const getSettings = cache(async (): Promise<SettingsDoc> => {

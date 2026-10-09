@@ -10,6 +10,7 @@ import { AddToCart, Gallery, ProductProvider } from '@/components/AddToCart'
 import { Crumbs, EmptyState, JsonLd, Pagination, RangeSummary, RichBody, TableScroll, type Crumb } from '@/components/content'
 import { getSettings, PAGE_SIZE, publicFind, siteOrigin } from './query'
 import { hrefOf } from './meta'
+import { catalogSearchText } from '@/lib/catalog-search'
 
 const SHOP = '/sklep-nurkowy.html'
 
@@ -92,7 +93,7 @@ function ProductGrid({ docs, page, totalPages, totalDocs, hrefFor, empty }: {
 
 export async function ShopIndex({ page, q }: { page: number; q: string }) {
   const where: Where | undefined = q
-    ? { or: [{ name: { like: q } }, { manufacturer: { like: q } }, { sku: { equals: q } }] }
+    ? { searchText: { like: catalogSearchText(q) } }
     : undefined
   const [tree, s, products] = await Promise.all([
     getTree(),

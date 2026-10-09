@@ -5,7 +5,10 @@ import { formatMoney, PAYMENT_STATUS } from '@/lib/presentation'
 import { DateText } from './content/DateText'
 import { Notice } from './content/States'
 
-type Info = { number: string; totalCents: number; currency: string; status: string; expiresAt?: string }
+type Info = {
+  number: string; totalCents: number; currency: string; status: string; expiresAt?: string
+  paymentMethod: string; orderStatus?: string; deliveryLabel?: string; pickupPointName?: string; paymentSurchargeCents: number
+}
 type State = { s: 'loading' } | { s: 'error'; message: string } | { s: 'ready'; info: Info }
 type Outcome = 'paid' | 'failed' | 'cancelled'
 
@@ -17,6 +20,12 @@ function parseInfo(d: unknown): Info | null {
   return {
     number: r.number.slice(0, 40), status: r.status.slice(0, 40), currency: r.currency.slice(0, 8), totalCents: r.totalCents,
     expiresAt: typeof r.expiresAt === 'string' ? r.expiresAt : undefined,
+    // Older responses carry no method: they were online payments.
+    paymentMethod: typeof r.paymentMethod === 'string' ? r.paymentMethod.slice(0, 40) : 'online',
+    orderStatus: typeof r.orderStatus === 'string' ? r.orderStatus.slice(0, 40) : undefined,
+    deliveryLabel: typeof r.deliveryLabel === 'string' ? r.deliveryLabel.slice(0, 200) : undefined,
+    pickupPointName: typeof r.pickupPointName === 'string' ? r.pickupPointName.slice(0, 120) : undefined,
+    paymentSurchargeCents: typeof r.paymentSurchargeCents === 'number' && Number.isSafeInteger(r.paymentSurchargeCents) ? r.paymentSurchargeCents : 0,
   }
 }
 const errorOf = (d: unknown, fallback: string) => {
@@ -24,9 +33,16 @@ const errorOf = (d: unknown, fallback: string) => {
   return typeof m === 'string' && m.trim() ? m.trim().slice(0, 300) : fallback
 }
 
+const METHOD: Record<string, string> = {
+  online: 'Online (symulacja)',
+  bank_transfer: 'Przelew tradycyjny (test)',
+  cod: 'Za pobraniem (test)',
+}
+
 /**
  * Simulated payment for a test order. The status shown always comes from the server;
  * nothing here marks an order as paid. Buttons exist only while the payment is pending.
+ * Offline payments are confirmed by signed-in shop staff; the link holder may only cancel.
  */
 export function TestPayment({ token }: { token: string }) {
   const [state, setState] = useState<State>({ s: 'loading' })
@@ -82,16 +98,44 @@ export function TestPayment({ token }: { token: string }) {
   const { info } = state
   const expires = info.expiresAt ? new Date(info.expiresAt).getTime() : NaN
   const expired = info.status === 'expired' || (info.status === 'pending' && Number.isFinite(expires) && expires <= now)
-  const pending = info.status === 'pending' && !expired
+  const offline = info.paymentMethod === 'bank_transfer' || info.paymentMethod === 'cod'
+  const shipped = info.orderStatus === 'shipped'
+  const pending = info.status === 'pending' && !expired && !shipped
+  const statusLabel = expired ? PAYMENT_STATUS.expired
+    : shipped && info.status === 'pending' ? 'Nadane testowo — oczekuje na pobranie'
+    : offline && info.status === 'pending' ? 'Oczekuje na potwierdzenie obsługi (test)'
+    : PAYMENT_STATUS[info.status] || info.status
   return (
     <div className="pay">
       <dl className="pay-dl">
         <div><dt>Zamówienie</dt><dd className="mono">{info.number}</dd></div>
         <div><dt>Kwota</dt><dd className="mono">{formatMoney(info.totalCents, info.currency)}</dd></div>
-        <div><dt>Status</dt><dd role="status">{expired ? PAYMENT_STATUS.expired : PAYMENT_STATUS[info.status] || info.status}</dd></div>
-        {pending && info.expiresAt ? <div><dt>Link ważny do</dt><dd><DateText value={info.expiresAt} format="datetime" /></dd></div> : null}
+        {info.paymentSurchargeCents > 0 ? <div><dt>W tym dopłata za pobranie</dt><dd className="mono">{formatMoney(info.paymentSurchargeCents, info.currency)}</dd></div> : null}
+        <div><dt>Płatność</dt><dd>{METHOD[info.paymentMethod] || info.paymentMethod}</dd></div>
+        {info.deliveryLabel ? <div><dt>Dostawa</dt><dd>{info.deliveryLabel}</dd></div> : null}
+        {info.pickupPointName ? <div><dt>Punkt odbioru</dt><dd>{info.pickupPointName}</dd></div> : null}
+        <div><dt>Status</dt><dd role="status">{statusLabel}</dd></div>
+        {pending && info.expiresAt ? <div><dt>{offline ? 'Rezerwacja do' : 'Link ważny do'}</dt><dd><DateText value={info.expiresAt} format="datetime" /></dd></div> : null}
       </dl>
-      {pending ? (
+      {pending && offline ? (
+        <>
+          {info.paymentMethod === 'bank_transfer' ? (
+            <Notice tone="info" title="Przelew testowy">
+              <p>Wersja podglądowa nie podaje numeru rachunku. Nie wykonuj przelewu. W prawdziwym sklepie tytułem przelewu byłby numer zamówienia: <span className="mono">{info.number}</span>.</p>
+              <p>Status zmieni się dopiero wtedy, gdy obsługa sklepu potwierdzi w panelu symulowany wpływ.</p>
+            </Notice>
+          ) : (
+            <Notice tone="info" title="Płatność przy odbiorze (test)">
+              <p>Obsługa oznaczy testowe nadanie, a potem potwierdzi testowe pobranie. Nic nie zostanie wysłane ani pobrane.</p>
+            </Notice>
+          )}
+          <div className="pay-act">
+            <button type="button" className="btn btn-line" disabled={!!busy} onClick={() => act('cancelled')}>{busy === 'cancelled' ? 'Zapisywanie…' : 'Anuluj zamówienie'}</button>
+          </div>
+        </>
+      ) : shipped && info.status === 'pending' ? (
+        <p>Przesyłka testowa jest oznaczona jako nadana. Anulowanie wymaga kontaktu ze sklepem.</p>
+      ) : pending ? (
         <div className="pay-act">
           <button type="button" className="btn btn-solid" disabled={!!busy} onClick={() => act('paid')}>{busy === 'paid' ? 'Zapisywanie…' : 'Symuluj udaną płatność'}</button>
           <button type="button" className="btn btn-line" disabled={!!busy} onClick={() => act('failed')}>{busy === 'failed' ? 'Zapisywanie…' : 'Symuluj odrzucenie'}</button>

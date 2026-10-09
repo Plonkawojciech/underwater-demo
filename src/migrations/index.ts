@@ -4,6 +4,9 @@ import * as migration_20261008_195740_underwater_import_metadata from './2026100
 import * as migration_20261008_201114_underwater_signup_confirmations from './20261008_201114_underwater_signup_confirmations';
 import * as migration_20261008_202116_underwater_operations_audit from './20261008_202116_underwater_operations_audit';
 import * as migration_20261008_205810_underwater_payload_security_upgrade from './20261008_205810_underwater_payload_security_upgrade';
+import * as migration_20261009_004126_underwater_public_documents_contact_context from './20261009_004126_underwater_public_documents_contact_context';
+import * as migration_20261009_005425_underwater_unicode_catalog_search from './20261009_005425_underwater_unicode_catalog_search';
+import * as migration_20261009_010256_underwater_payment_delivery from './20261009_010256_underwater_payment_delivery';
 
 export const migrations = [
   {
@@ -34,6 +37,21 @@ export const migrations = [
   {
     up: migration_20261008_205810_underwater_payload_security_upgrade.up,
     down: migration_20261008_205810_underwater_payload_security_upgrade.down,
-    name: '20261008_205810_underwater_payload_security_upgrade'
+    name: '20261008_205810_underwater_payload_security_upgrade',
+  },
+  {
+    up: migration_20261009_004126_underwater_public_documents_contact_context.up,
+    down: migration_20261009_004126_underwater_public_documents_contact_context.down,
+    name: '20261009_004126_underwater_public_documents_contact_context',
+  },
+  {
+    up: migration_20261009_005425_underwater_unicode_catalog_search.up,
+    down: migration_20261009_005425_underwater_unicode_catalog_search.down,
+    name: '20261009_005425_underwater_unicode_catalog_search',
+  },
+  {
+    up: migration_20261009_010256_underwater_payment_delivery.up,
+    down: migration_20261009_010256_underwater_payment_delivery.down,
+    name: '20261009_010256_underwater_payment_delivery'
   },
 ];

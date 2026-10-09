@@ -22,7 +22,7 @@ await Promise.all(Array.from({ length: 2 }, async () => {
       if (!target.startsWith(root + path.sep) || (await lstat(target)).isSymbolicLink() || !(await realpath(target)).startsWith(root + path.sep)) throw new Error('Unsafe source image path.')
       const bytes = await readVerifiedFile(target, descriptor.sha256)
       const file = { data: bytes, size: bytes.length, name: path.basename(target), mimetype: mime[path.extname(target).toLowerCase()] }
-      await verifyImageUpload({ args: { req: { file } }, operation: 'create' } as Parameters<typeof verifyImageUpload>[0])
+      await verifyImageUpload({ args: { overrideAccess: true, req: { file } }, operation: 'create' } as Parameters<typeof verifyImageUpload>[0])
       await sharp(bytes, { limitInputPixels: 40_000_000 }).resize({ width: 1, height: 1, fit: 'inside' }).toBuffer()
       checked++
     } catch (error) {

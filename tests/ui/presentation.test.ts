@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  canonicalPath, categoryTree, contentHref, fingerprint, formatMoney, groupByMonth, isSafeSlug, isToken, jsonLd, knownStock,
-  legacyCandidates, monthRange, normalizeSegments, parseConsent, parseMonth, parsePage, parseQuote, pathCandidates, priceSpan,
-  productPrice, productSchema, quoteLineFor, safeAssetUrl, safeExternalUrl, safePaymentPath, searchQuery, seatsLeft, shiftMonth,
-  variantPrice, warsawMidnight, withQuery, type ProductDoc,
+  albumSlice, canonicalPath, categoryTree, contactQuery, contentHref, enquiryHref, fingerprint, formatDateTime, formatMoney, groupByMonth,
+  isSafeSlug, isToken, jsonLd, knownStock, legacyCandidates, listCanonical, mergeCalendar, monthRange, normalizeSegments, parseConsent,
+  parseMonth, parsePage, parseQuote, pathCandidates, phoneParts, priceSpan, productPrice, productSchema, quoteLineFor, safeAssetUrl,
+  safeExternalUrl, safePaymentPath, searchQuery, seatsLeft, shiftMonth, STOCK_LABEL, stockState, telHref, tripView, variantPrice,
+  warsawMidnight, withQuery, type EventDoc, type ProductDoc, type SessionDoc, type TripDoc,
 } from '../../src/lib/presentation'
 
 test('normalizeSegments decodes Unicode, strips .html only from the last segment, keeps the requested form', () => {
@@ -85,6 +86,24 @@ test('knownStock sums variants and returns null when the record does not say', (
   assert.equal(knownStock({ stock: null }), null)
   assert.equal(knownStock({ stock: 9, variants: [{ stock: 2 }, { stock: -1 }, { stock: null }] }), 2)
   assert.equal(knownStock({ variants: [{ stock: null }] }), null)
+  // A known zero next to an unknown variant is not "sold out".
+  assert.equal(knownStock({ variants: [{ stock: 0 }, { stock: null }] }), null)
+  assert.equal(knownStock({ variants: [{ stock: 0 }, { stock: 0 }] }), 0)
+})
+
+test('stock: null stays unknown (enquiry, no sold-out wording), zero is out, only positive is buyable', () => {
+  assert.equal(stockState(null), 'unknown')
+  assert.equal(stockState(undefined), 'unknown')
+  assert.equal(stockState(Number.NaN), 'unknown')
+  assert.equal(stockState(0), 'out')
+  assert.equal(stockState(-2), 'out')
+  assert.equal(stockState(3), 'in')
+  assert.equal(STOCK_LABEL.unknown, 'Dostępność do potwierdzenia')
+  assert.doesNotMatch(STOCK_LABEL.unknown, /niedostępn/i)
+  assert.match(STOCK_LABEL.out, /niedostępny/)
+  // Structured data: no availability is published for unknown stock.
+  const p: ProductDoc = { id: 1, name: 'M', slug: 'm', priceCents: 100, variants: [{ label: 'S', stock: 0 }, { label: 'L', stock: null }] }
+  assert.equal((productSchema(p, 'u', 'o') as Record<string, any>).offers.availability, undefined)
 })
 
 test('formatMoney uses Polish formatting from grosze', () => {
@@ -214,4 +233,87 @@ test('consent defaults to necessary only', () => {
   assert.deepEqual(parseConsent('{bad'), { analytics: false })
   assert.deepEqual(parseConsent('{"analytics":true}'), { analytics: false })
   assert.deepEqual(parseConsent('{"v":1,"analytics":true}'), { analytics: true })
+})
+
+
+test('phone links: each written number keeps its text; Polish numbers get +48; nothing is guessed', () => {
+  assert.deepEqual(phoneParts('22 826 47 73, 604 123 456; +48 (22) 111-22-33'), [
+    { text: '22 826 47 73', href: 'tel:+48228264773' },
+    { text: '604 123 456', href: 'tel:+48604123456' },
+    { text: '+48 (22) 111-22-33', href: 'tel:+48221112233' },
+  ])
+  assert.deepEqual(phoneParts('0048 604 123 456 lub +44 20 7946 0958').map((p) => p.href), ['tel:+48604123456', 'tel:+442079460958'])
+  // Extensions, notes and wrong digit counts stay text without a link; no numbers are joined together.
+  for (const bad of ['22 826 47 73 wew. 12', '123', '604 123 4567', 'brak', 'tel:604123456', '+0 123 456 789']) {
+    assert.equal(phoneParts(bad)[0].href, null, bad)
+  }
+  assert.equal(telHref('pon-pt; 604 123 456'), 'tel:+48604123456')
+  assert.equal(telHref('22 826 47 73, 604 123 456'), 'tel:+48228264773')
+  assert.equal(telHref(''), null)
+  assert.deepEqual(phoneParts(null), [])
+})
+
+test('enquiry links carry only a record id; the query parser accepts positive ids only', () => {
+  assert.equal(enquiryHref('product', 42), '/kontakt.html?produkt=42')
+  assert.equal(enquiryHref('trip', 7), '/kontakt.html?wyjazd=7')
+  assert.equal(enquiryHref('product', -1), '/kontakt.html')
+  assert.deepEqual(contactQuery({ produkt: '42' }), { kind: 'product', id: 42 })
+  assert.deepEqual(contactQuery({ wyjazd: ['7', '8'] }), { kind: 'trip', id: 7 })
+  for (const bad of ['0', '-1', '1.5', 'abc', '99999999999', '42 OR 1=1', '']) assert.equal(contactQuery({ produkt: bad }), null, bad)
+  assert.equal(contactQuery({}), null)
+})
+
+test('formatDateTime shows Warsaw date and time across DST', () => {
+  assert.equal(formatDateTime('2026-11-14T08:00:00Z'), '14 listopada 2026, 09:00')
+  assert.equal(formatDateTime('2026-07-01T16:30:00Z'), '1 lipca 2026, 18:30')
+  assert.equal(formatDateTime('2026-10-31T23:30:00Z'), '1 listopada 2026, 00:30')
+  assert.equal(formatDateTime('nie data'), '')
+  assert.equal(formatDateTime(null), '')
+})
+
+test('mergeCalendar: one dated list, a session or trip already shown as its event appears once, undated trips are left out', () => {
+  const course = { id: 9, name: 'Open Water Diver', slug: 'owd' }
+  const sessions = [
+    { id: 1, title: 'OWD listopad', course, startsAt: '2026-11-14T08:00:00Z' },
+    { id: 2, title: 'Open Water Diver', course, startsAt: '2026-11-02T08:00:00Z' },
+    { id: 3, title: 'Bez kursu', course: 99, startsAt: '2026-11-20T08:00:00Z' },
+  ] as SessionDoc[]
+  const trips = [
+    { id: 5, title: 'Egipt', path: 'egipt', startsAt: '2026-11-10T00:00:00Z' },
+    { id: 6, title: 'Chorwacja', path: 'chorwacja', startsAt: '2026-11-03T00:00:00Z' },
+    { id: 7, title: 'Stara wyprawa', path: 'stara', startsAt: null },
+  ] as TripDoc[]
+  const events = [
+    { id: 11, title: 'Start kursu OWD', startsAt: '2026-11-14T08:00:00Z', courseSession: { id: 1 } as SessionDoc },
+    { id: 12, title: 'Wyjazd do Egiptu', startsAt: '2026-11-10T00:00:00Z', trip: 5 },
+  ] as EventDoc[]
+  const list = mergeCalendar({ events, sessions, trips }, { event: () => '/e.html', session: (s) => `/s${s.id}.html`, trip: (t) => `/${t.path}.html` })
+  assert.deepEqual(list.map((e) => e.key), ['course-2', 'trip-6', 'event-12', 'event-11', 'course-3'])
+  const owd = list.find((e) => e.key === 'course-2')!
+  assert.equal(owd.title, 'Open Water Diver')
+  assert.equal(owd.detail, null)
+  assert.equal(list.find((e) => e.key === 'course-3')!.title, 'Bez kursu')
+  assert.equal(list.find((e) => e.key === 'trip-6')!.href, '/chorwacja.html')
+})
+
+test('list canonicals keep the page number; search and course filters point at the list itself', () => {
+  assert.equal(listCanonical('/galeria.html', 'paged', { strona: '3' }), '/galeria.html?strona=3')
+  assert.equal(listCanonical('/galeria.html', 'paged', { strona: '1' }), '/galeria.html')
+  assert.equal(listCanonical('/galeria.html', 'paged', { strona: 'x' }), '/galeria.html')
+  assert.equal(listCanonical('/sklep-nurkowy.html', 'shop', { strona: '2' }), '/sklep-nurkowy.html?strona=2')
+  assert.equal(listCanonical('/sklep-nurkowy.html', 'shop', { strona: '2', q: 'maska' }), '/sklep-nurkowy.html')
+  assert.equal(listCanonical('/k.html', 'courses', { strona: '2', org: 'PADI' }), '/k.html')
+  assert.equal(listCanonical('/wyprawy-nurkowe.html', 'trips', { strona: '2', widok: 'minione' }), '/wyprawy-nurkowe.html?widok=minione&strona=2')
+  assert.equal(listCanonical('/wyprawy-nurkowe.html', 'trips', { widok: 'cokolwiek' }), '/wyprawy-nurkowe.html')
+  assert.equal(tripView('bez-daty'), 'undated')
+  assert.equal(tripView(undefined), 'upcoming')
+})
+
+test('albumSlice pages photo rows and clamps the page; every photo is on exactly one page', () => {
+  const rows = Array.from({ length: 100 }, (_, i) => i)
+  const p3 = albumSlice(rows, 3, 48)
+  assert.deepEqual([p3.page, p3.pages, p3.total, p3.rows], [3, 3, 100, [96, 97, 98, 99]])
+  assert.equal(albumSlice(rows, 99, 48).page, 3)
+  assert.deepEqual([1, 2, 3].flatMap((n) => albumSlice(rows, n, 48).rows), rows)
+  assert.deepEqual(albumSlice(null, 1, 48), { rows: [], page: 1, pages: 1, total: 0 })
 })

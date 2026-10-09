@@ -279,9 +279,8 @@ test('older Joomla layout: title from the sibling h2.contentheading, body from .
   assert.match(body, /<h2>Zadzwoń: 000 000 000 CALLOUT-MARKER<\/h2>/, 'body h1 kept as a section heading')
   assert.match(body, /Cena kursu: 1 234 zł, wiek od 10 lat/)
   assert.match(body, /href="\/kursy-nurkowania\/inny.html"/)
-  // The PDF is not part of the import: its text stays, the dead link goes to review.
-  assert.match(body, /<p>Plan kursu<\/p>/)
-  assert.ok(!body.includes('plan-kursu.pdf'))
+  // Public PDF addresses remain; the importer separately verifies acquired files.
+  assert.match(body, /href="\/images\/stories\/plan-kursu\.pdf"/)
   assert.ok(!body.includes('OPEN WATER (OWS)'), 'title is not repeated in the body')
   for (const marker of ['HEADER-MARKER', 'LEFT-MARKER', 'LEFT-HEADING-MARKER', 'LEFT-ARTICLE-MARKER', 'RIGHT-MARKER', 'RIGHT-HEADING-MARKER', 'FOOTER-MARKER', 'FOOTER-ARTICLE-MARKER', 'META-MARKER', 'Strona główna', 'left-promo']) assert.ok(!JSON.stringify(result).includes(marker), marker)
   // The thumbnail links to its full-size file: that file is the image, and the dead link is dropped.
@@ -298,7 +297,7 @@ test('older Joomla layout: title from the sibling h2.contentheading, body from .
   assert.equal(event.relations?.courseSession, 'course-sessions:' + session.key)
   for (const field of ['price', 'minAge', 'maxDepth', 'level', 'sections', 'includes', 'lead']) assert.equal(field in course.data, false, field)
   assert.deepEqual(result.bundle.entities.map(item => item.collection).sort(), ['course-sessions', 'courses', 'events'])
-  assert.deepEqual(result.unresolved, [{ code: 'internal-link-unresolvable', url: ORIGIN + LEGACY_COURSE, key: course.key, detail: 'https://www.underwater.pl/images/stories/plan-kursu.pdf text: Plan kursu' }])
+  assert.deepEqual(result.unresolved, [])
 })
 
 test('older layout: blog lists, title-less bodies and form-only sections are reported, not invented', () => {
@@ -672,7 +671,7 @@ test('one image written in NFC and NFD form is one media identity', () => {
   assert.deepEqual(reasons, ['media-unsafe', 'media-unsafe', 'media-encoded-separator', 'media-unsafe'])
 })
 
-test('own-site component query links and direct file links keep their text and are reported', async () => {
+test('component and unsafe file links are reported; public PDF download links preserve their address', async () => {
   const links = [
     '<a href="/index.php?option=com_virtuemart&amp;view=cart&amp;Itemid=5">koszyk</a>',
     '<a href="https://www.underwater.pl/index.php?option=com_content&amp;view=article&amp;id=12&amp;Itemid=3">artykuł 12</a>',
@@ -692,14 +691,15 @@ test('own-site component query links and direct file links keep their text and a
   const result = convert([page('/linki.html', article('Linki', `<p>${links.join(' ')}</p>`))])
   const body: string = entity(result, 'pages', 'page:linki.html')!.data.body
   for (const kept of ['<a href="/kontakt.html#mapa">kontakt</a>', '<a href="/">start</a>', '<a href="/kursy-nurkowania/">kursy</a>', '<a href="https://example.org/zrodlo?a=1">źródło</a>', '<a href="mailto:biuro@example.org">napisz</a>']) assert.ok(body.includes(kept), kept)
-  for (const text of ['koszyk', 'artykuł 12', 'poleć znajomemu', 'zamów', 'cennik', 'panel', 'zdjęcie w pełnym rozmiarze', 'wyślij']) {
+  for (const text of ['koszyk', 'artykuł 12', 'poleć znajomemu', 'zamów', 'panel', 'zdjęcie w pełnym rozmiarze', 'wyślij']) {
     assert.ok(body.includes(text), text)
     assert.doesNotMatch(body, new RegExp(`<a [^>]*>${text}</a>`), text)
   }
-  for (const leaked of ['index.php?', 'option=', 'com_mailto', 'c2VjcmV0', 'SECRET-TOKEN', 'task=', 'cennik.pdf', 'administrator', 'javascript', 'duze.jpg">']) assert.ok(!body.includes(leaked), leaked)
+  for (const leaked of ['index.php?', 'option=', 'com_mailto', 'c2VjcmV0', 'SECRET-TOKEN', 'task=', 'administrator', 'javascript', 'duze.jpg">']) assert.ok(!body.includes(leaked), leaked)
   assert.match(body, /<img src="https:\/\/www.underwater.pl\/images\/stories\/duze.jpg" alt="miniatura">/, 'a lightbox thumbnail is converted, not reported')
   const reported = result.unresolved.filter(item => item.code === 'internal-link-unresolvable')
-  assert.deepEqual(reported.map(item => item.detail.split(' text: ')[1]).sort(), ['artykuł 12', 'cennik', 'koszyk', 'panel', 'poleć znajomemu', 'zamów', 'zdjęcie w pełnym rozmiarze'].sort())
+  assert.match(body, /<a href="\/images\/stories\/cennik\.pdf">cennik<\/a>/)
+  assert.deepEqual(reported.map(item => item.detail.split(' text: ')[1]).sort(), ['artykuł 12', 'koszyk', 'panel', 'poleć znajomemu', 'zamów', 'zdjęcie w pełnym rozmiarze'].sort())
   assert.ok(reported.every(item => item.key === 'page:linki.html' && item.url === ORIGIN + '/linki.html'))
   assert.ok(reported.some(item => item.detail.startsWith('https://www.underwater.pl/index.php query: Itemid, option, view (option=com_virtuemart)')), JSON.stringify(reported))
   for (const leaked of ['SECRET-TOKEN', 'c2VjcmV0', 'id=12', 'cart']) assert.ok(!JSON.stringify(result.unresolved).includes(leaked), leaked)
@@ -707,6 +707,15 @@ test('own-site component query links and direct file links keep their text and a
 })
 
 const MASK_SELF = '/80-maski-i-fajki/139-maski-nurkowe/3625-maska-soprastek-corona.html'
+
+test('known video embeds become explicit links; unknown embeds are reported without executing players', () => {
+  const result = convert([page('/nagranie.html', article('Nagranie', '<iframe src="https://www.youtube.com/embed/synthetic"></iframe><video src="https://example.invalid/movie.mp4"></video><p><a href="/images/Mares tabela.pdf">Tabela</a></p>'))])
+  const body = entity(result, 'pages', 'page:nagranie.html')!.data.body as string
+  assert.match(body, /href="https:\/\/www.youtube.com\/embed\/synthetic"/)
+  assert.match(body, /href="\/images\/Mares%20tabela.pdf"/)
+  assert.doesNotMatch(body, /<iframe|<video|example.invalid/)
+  assert.ok(result.unresolved.some(item => item.code === 'unsupported-source-embed'))
+})
 
 test('a breadcrumb link to the product\'s own short address never becomes a category', async () => {
   const html = fixture('product-breadcrumb-self.html')

@@ -29,6 +29,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--commerce', action='store_true', help='Create, verify and hide one labelled TEST catalogue fixture on our preview only.')
+    parser.add_argument('--recover-fixture', type=int, help='Inspect and hide only a previous labelled live QA product; never repeat checkout.')
     args = parser.parse_args()
     security().SecKeychainSetUserInteractionAllowed(False)
     password = read_secret('programo.underwater.preview.basic-password')
@@ -43,7 +44,7 @@ def main():
         if not path.startswith('/') or path.startswith('//') or parts.scheme or parts.netloc or parts.fragment:
             raise ValueError('Only a relative own-preview path is allowed.')
         headers = {'User-Agent': 'Programo-Underwater-preview-verification/1.0'}
-        if authenticated: headers['Authorization'] = authorization
+        if authenticated: headers.update({'Authorization': authorization, 'Origin': ORIGIN})
         if body is not None: headers.update({'Origin': ORIGIN, 'Content-Type': 'application/json'})
         headers.update(extra or {})
         req = urllib.request.Request(ORIGIN + path, data=None if body is None else json.dumps(body).encode(), headers=headers, method=method)
@@ -85,12 +86,31 @@ def main():
     assert status == 403
     checks.append({'missingRoute': 404, 'crossOrigin': 403})
 
-    if args.commerce:
+    if args.commerce or args.recover_fixture:
         admin_password = read_secret('programo.underwater.preview.admin-password')
         if not admin_password: raise PermissionError('Approved CMS credential unavailable.')
         login = api('/api/users/login', 'POST', {'email': 'underwater-preview@programo.pl', 'password': admin_password.decode()})
         del admin_password, login
         assert any(cookie.name.endswith('token') for cookie in cookies), 'CMS login must establish a cookie; Basic auth remains in its own header.'
+    if args.recover_fixture:
+        import re
+        fixture = api('/api/products/' + str(args.recover_fixture) + '?depth=0')
+        assert re.fullmatch(r'test-live-[a-f0-9]{32}-product', fixture['slug']) and fixture['name'].startswith('TEST — kontrola zamówienia') and 1_100_000_000 <= fixture['vmId'] < 2_100_000_000
+        category_id = fixture['category'] if isinstance(fixture['category'], int) else fixture['category']['id']
+        category = api('/api/categories/' + str(category_id) + '?depth=0')
+        assert category['slug'] == fixture['slug'].removesuffix('-product') and category['name'].startswith('TEST — kontrola wdrożenia')
+        orders = api('/api/orders?depth=0&where[items.product][equals]=' + str(fixture['id']) + '&limit=100')
+        assert orders['totalDocs'] == len(orders['docs'])
+        for order in orders['docs']:
+            assert order['mode'] == 'test' and order['email'] == 'live-qa@example.invalid' and order['customerName'].startswith('TEST LIVE')
+            if order['paymentStatus'] == 'pending': api('/api/operations/records', 'POST', {'command': 'update-status', 'collection': 'orders', 'id': order['id'], 'status': 'cancelled'})
+            after = api('/api/orders/' + str(order['id']) + '?depth=0')
+            assert after['paymentStatus'] in {'cancelled', 'failed', 'expired'} and after['stockReleased'] is True
+        for collection, ident in [('products', fixture['id']), ('categories', category_id)]:
+            api('/api/' + collection + '/' + str(ident), 'PATCH', {'published': False})
+            assert api('/api/' + collection + '/' + str(ident) + '?depth=0')['published'] is False
+        checks.append({'recoveredSyntheticFixture': fixture['id'], 'ordersInspected': len(orders['docs']), 'fixturesHidden': True})
+    if args.commerce:
         slug = 'test-live-' + uuid.uuid4().hex
         category = api('/api/categories', 'POST', {'name': 'TEST — kontrola wdrożenia, dane syntetyczne', 'slug': slug, 'published': False}, 201)['doc']
         product, input_order, token = None, None, None

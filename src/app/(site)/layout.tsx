@@ -7,7 +7,8 @@ import { Header } from '@/components/Header'
 import { Footer } from '@/components/Footer'
 import { SITE_NAV } from '@/components/nav'
 import { DateText } from '@/components/content'
-import { courseHref, telHref, type CourseDoc, type SessionDoc } from '@/lib/presentation'
+import { PhoneLinks } from '@/components/Phone'
+import { courseHref, type CourseDoc, type SessionDoc } from '@/lib/presentation'
 import { getLegalLinks, getSettings, isPreview, nowISO, publicFind, siteOrigin } from '@/views/query'
 
 const display = Newsreader({ subsets: ['latin', 'latin-ext'], weight: ['400', '500'], style: ['normal', 'italic'], variable: '--font-display' })
@@ -38,13 +39,15 @@ async function nearestSession() {
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const [s, legal, next] = await Promise.all([getSettings(), getLegalLinks(), nearestSession()])
   const preview = isPreview()
-  const tel = telHref(s.phone)
+  // Plain text from settings, shown as written; nothing is shown when the field is empty.
+  const banner = s.banner?.replace(/\s+/g, ' ').trim()
   const course = next && typeof next.course === 'object' ? (next.course as CourseDoc) : null
   return (
     <html lang="pl" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
         <CartProvider>
-          {next || s.phone ? (
+          {banner ? <div className="site-banner" role="region" aria-label="Komunikat"><p className="wrap">{banner}</p></div> : null}
+          {next || s.phone?.trim() ? (
             <div className="topline"><div className="wrap">
               {next
                 ? <span>
@@ -52,7 +55,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
                     {course ? <Link href={courseHref(course.slug)}>{course.name}, <DateText value={next.startsAt} format="short" /></Link> : <>{next.title}, <DateText value={next.startsAt} format="short" /></>}
                   </span>
                 : <span />}
-              {s.phone ? (tel ? <a href={tel}>{s.phone}</a> : <span>{s.phone}</span>) : null}
+              {s.phone?.trim() ? <span className="topline-tel"><PhoneLinks value={s.phone} /></span> : null}
             </div></div>
           ) : null}
           <Header nav={SITE_NAV} phone={s.phone} />

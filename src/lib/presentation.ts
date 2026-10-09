@@ -220,13 +220,29 @@ export function priceSpan(p: Parameters<typeof productPrice>[0] & { variants?: P
 
 const stockNum = (s: unknown) => (typeof s === 'number' && Number.isFinite(s) ? Math.max(0, Math.floor(s)) : null)
 
-/** Known stock from CMS data (sum of variants when present), or null when the record does not say. */
+/**
+ * Known stock from CMS data (sum of variants when present), or null when the record does not say.
+ * Variants of which only some are known to be at zero are not "sold out": the rest is unknown.
+ */
 export function knownStock(p: { stock?: number | null; variants?: Pick<VariantDoc, 'stock'>[] | null }): number | null {
   if (p.variants?.length) {
-    const known = p.variants.map((v) => stockNum(v.stock)).filter((n): n is number => n !== null)
-    return known.length ? known.reduce((a, b) => a + b, 0) : null
+    const all = p.variants.map((v) => stockNum(v.stock))
+    const known = all.filter((n): n is number => n !== null)
+    const sum = known.reduce((a, b) => a + b, 0)
+    return !known.length || (sum === 0 && known.length < all.length) ? null : sum
   }
   return stockNum(p.stock)
+}
+
+/** `unknown` (no stock in the record) is not `out` (a known zero); only `in` can be bought online. */
+export type StockState = 'in' | 'out' | 'unknown'
+export function stockState(stock: number | null | undefined): StockState {
+  const n = stockNum(stock)
+  return n === null ? 'unknown' : n > 0 ? 'in' : 'out'
+}
+export const STOCK_LABEL: Record<Exclude<StockState, 'in'>, string> = {
+  unknown: 'Dostępność do potwierdzenia',
+  out: 'Chwilowo niedostępny',
 }
 
 // ---------- routing ----------
@@ -314,6 +330,29 @@ export function parsePage(v: string | string[] | undefined, max = 1000): number 
 export function searchQuery(v: string | string[] | undefined): string {
   const s = (firstParam(v) || '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
   return s.length >= 2 ? s : ''
+}
+
+export type Query = Record<string, string | string[] | undefined>
+
+/** Trip list views and their query values; anything else is the upcoming list. */
+export type TripView = 'upcoming' | 'past' | 'undated'
+export const TRIP_VIEW_PARAM: Record<TripView, string | undefined> = { upcoming: undefined, past: 'minione', undated: 'bez-daty' }
+export function tripView(v: string | string[] | undefined): TripView {
+  const s = firstParam(v)
+  return s === TRIP_VIEW_PARAM.past ? 'past' : s === TRIP_VIEW_PARAM.undated ? 'undated' : 'upcoming'
+}
+
+/**
+ * Canonical for a list page. Pages after the first keep `strona` (they hold different records).
+ * Search results and course filters point at the unfiltered list; the trip view is part of the list.
+ */
+export type ListKind = 'paged' | 'shop' | 'courses' | 'trips'
+export function listCanonical(path: string, kind: ListKind, q: Query = {}): string {
+  const page = parsePage(q.strona)
+  if (kind === 'shop' && searchQuery(q.q)) return path
+  if (kind === 'courses' && firstParam(q.org)) return path
+  if (kind === 'trips') return withQuery(path, { widok: TRIP_VIEW_PARAM[tripView(q.widok)], strona: page })
+  return withQuery(path, { strona: page })
 }
 
 export function withQuery(path: string, params: Record<string, string | number | null | undefined>): string {
@@ -438,6 +477,82 @@ export function groupByMonth<T extends { startsAt: string }>(items: T[]): { mont
   return out
 }
 
+const dateLongFmt = new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ })
+const timeFmt = new Intl.DateTimeFormat('pl-PL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: TZ })
+/** "14 listopada 2026, 09:00" in Warsaw time; empty for a missing or invalid date. */
+export function formatDateTime(v?: string | null): string {
+  const d = v ? new Date(v) : null
+  if (!d || Number.isNaN(d.getTime())) return ''
+  return `${dateLongFmt.format(d)}, ${timeFmt.format(d)}`
+}
+
+// ---------- calendar ----------
+
+export type CalendarKind = 'event' | 'course' | 'trip'
+export const CALENDAR_KIND: Record<CalendarKind, string> = { event: 'Wydarzenie', course: 'Kurs', trip: 'Wyprawa' }
+export type CalendarEntry = {
+  key: string
+  kind: CalendarKind
+  title: string
+  /** Session name when the title is the course name. */
+  detail?: string | null
+  startsAt: string
+  endsAt?: string | null
+  location?: string | null
+  href: string | null
+}
+
+const relId = (v: unknown): number | null =>
+  typeof v === 'number' ? v : v && typeof v === 'object' && typeof (v as { id?: unknown }).id === 'number' ? (v as { id: number }).id : null
+const validDate = (v?: string | null): v is string => !!v && !Number.isNaN(new Date(v).getTime())
+const KIND_ORDER: CalendarKind[] = ['event', 'course', 'trip']
+
+/**
+ * One date list from published events, course sessions and dated trips. A session or trip an
+ * event already points to is shown once, as the event. Records without a valid start date are left out.
+ */
+export function mergeCalendar(
+  { events, sessions, trips }: { events: EventDoc[]; sessions: SessionDoc[]; trips: TripDoc[] },
+  href: { event: (e: EventDoc) => string | null; session: (s: SessionDoc) => string | null; trip: (t: TripDoc) => string | null },
+): CalendarEntry[] {
+  const coveredSessions = new Set(events.map((e) => relId(e.courseSession)).filter((n): n is number => n !== null))
+  const coveredTrips = new Set(events.map((e) => relId(e.trip)).filter((n): n is number => n !== null))
+  const out: CalendarEntry[] = []
+  for (const e of events) {
+    if (validDate(e.startsAt)) out.push({ key: `event-${e.id}`, kind: 'event', title: e.title, startsAt: e.startsAt, endsAt: e.endsAt, location: e.location, href: href.event(e) })
+  }
+  for (const s of sessions) {
+    if (coveredSessions.has(s.id) || !validDate(s.startsAt)) continue
+    const course = asObject(s.course)
+    out.push({
+      key: `course-${s.id}`, kind: 'course', title: course?.name || s.title, detail: course && s.title !== course.name ? s.title : null,
+      startsAt: s.startsAt, endsAt: s.endsAt, location: s.location, href: href.session(s),
+    })
+  }
+  for (const t of trips) {
+    if (coveredTrips.has(t.id) || !validDate(t.startsAt)) continue
+    out.push({ key: `trip-${t.id}`, kind: 'trip', title: t.title, startsAt: t.startsAt, endsAt: t.endsAt, location: t.location, href: href.trip(t) })
+  }
+  return out.sort((a, b) =>
+    new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime() ||
+    KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
+    a.title.localeCompare(b.title, 'pl'))
+}
+
+// ---------- galleries ----------
+
+export type AlbumPhotoRow = NonNullable<AlbumDoc['photos']>[number]
+/** Media id of a relation that may or may not be populated. */
+export const mediaId = (m: MediaRef): number | null => relId(m)
+
+/** One page of an album's photo rows; the page is clamped to the album. */
+export function albumSlice<T>(rows: T[] | null | undefined, page: number, perPage: number) {
+  const all = rows || []
+  const pages = Math.max(1, Math.ceil(all.length / perPage))
+  const cur = Math.min(Math.max(1, page), pages)
+  return { rows: all.slice((cur - 1) * perPage, cur * perPage), page: cur, pages, total: all.length }
+}
+
 // ---------- courses ----------
 
 /** Free places, or null when the session has no capacity limit. Never negative. */
@@ -472,9 +587,45 @@ export function excerpt(text?: string | null, max = 160): string {
   return (sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,.;:–-]+$/, '') + '…'
 }
 
-export const telHref = (phone?: string | null) => {
-  const t = (phone || '').replace(/[^\d+]/g, '')
-  return t.length >= 6 ? `tel:${t}` : null
+// ---------- phone ----------
+
+/**
+ * `tel:` link for one written number, or null. Polish numbers (9 digits, optionally with +48 or
+ * 0048) get +48; other numbers must already be international. Letters (extensions, notes) or a
+ * wrong digit count give no link, so nothing is dialled that the text does not say.
+ */
+function telOf(text: string): string | null {
+  const t = text.replace(/[\s().-]/g, '')
+  const pl = /^(?:\+48|0048)?(\d{9})$/.exec(t)
+  if (pl) return `tel:+48${pl[1]}`
+  return /^\+[1-9]\d{7,14}$/.test(t) ? `tel:${t}` : null
+}
+
+export type PhonePart = { text: string; href: string | null }
+/** Settings may hold several numbers ("22 826 47 73, 604 123 456"); each keeps its own text and link. */
+export function phoneParts(raw?: string | null): PhonePart[] {
+  return (raw || '').split(/[,;\n]|\s\/\s|\s+lub\s+/i).map((s) => s.trim()).filter(Boolean).map((text) => ({ text, href: telOf(text) }))
+}
+/** The first number that makes a valid link: for places with room for one call button. */
+export const telHref = (raw?: string | null): string | null => phoneParts(raw).find((p) => p.href)?.href ?? null
+
+// ---------- enquiries ----------
+
+/** What a contact message is about. The server re-reads the published record before trusting it. */
+export type ContactContext = { kind: 'product' | 'trip'; id: number; title: string; href: string }
+const CONTACT_PARAM = { product: 'produkt', trip: 'wyjazd' } as const
+
+/** Contact page link that names the record by id only (no titles in the URL). */
+export const enquiryHref = (kind: ContactContext['kind'], id: number) =>
+  Number.isSafeInteger(id) && id > 0 ? withQuery('/kontakt.html', { [CONTACT_PARAM[kind]]: id }) : '/kontakt.html'
+
+/** The record a contact link points to, or null. Validation only; the record itself is read on the server. */
+export function contactQuery(q: Query): { kind: ContactContext['kind']; id: number } | null {
+  for (const kind of ['product', 'trip'] as const) {
+    const s = firstParam(q[CONTACT_PARAM[kind]])
+    if (s && /^[1-9]\d{0,9}$/.test(s) && Number(s) <= 2 ** 31 - 1) return { kind, id: Number(s) }
+  }
+  return null
 }
 
 // ---------- legal ----------

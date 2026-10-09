@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { validateCatalog } from '../lib/catalog-validation'
+import { updateCatalogSearch } from '../lib/catalog-search'
 import { publicContentAccess } from '../lib/access'
 import { contentFields, longContent } from './fields'
 
@@ -13,10 +14,11 @@ export const Products: CollectionConfig = {
     description: 'Każdy produkt ma ten sam adres co dziś: /{ID}-{nazwa}.html',
   },
   access: publicContentAccess,
-  hooks: { beforeValidate: [validateCatalog] },
+  hooks: { beforeValidate: [validateCatalog, updateCatalogSearch] },
   fields: [
     { name: 'inventoryActions', type: 'ui', admin: { components: { Field: '@/components/admin/InventoryActions' } } },
     { name: 'name', label: 'Nazwa', type: 'text', required: true },
+    { name: 'searchText', type: 'text', admin: { hidden: true } },
     {
       type: 'row',
       fields: [

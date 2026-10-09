@@ -10,7 +10,7 @@
     "seed": "tsx scripts/seed.ts",
     "generate:types": "payload generate:types",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test --test-concurrency=1 tests/*.test.ts tests/ui/*.test.ts"
+    "test": "node scripts/qa/run-tests.mjs"
   },
   "dependencies": {
     "@payloadcms/db-sqlite": "3.90.2",

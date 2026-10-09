@@ -463,6 +463,16 @@ class Body:
         # guessed: the text stays, the link goes to review without its query values.
         extension = re.search(r'\.([a-z0-9]{1,5})\Z', (path or '').rsplit('/', 1)[-1], re.I)
         is_file = bool(extension) and re.search(r'[a-z]', extension.group(1), re.I) and extension.group(1).lower() not in ('html', 'htm')
+        # Verified public PDFs retain their exact legacy path. The importer maps
+        # acquired files to private preview storage and reports missing downloads.
+        if not parts.query and parts.path.lower().endswith('.pdf') and own_url(parts, port):
+            try:
+                pdf_path = unicodedata.normalize('NFC', unquote(parts.path, errors='strict'))
+            except UnicodeError:
+                pdf_path = ''
+            safe_pdf = pdf_path.startswith('/') and not pdf_path.startswith('//') and not re.search(r'[\\\x00-\x1f\x7f-\x9f%?#]', pdf_path) and not re.search(r'%(?:2f|5c|00|3f|23)', parts.path, re.I) and not has_invisible(pdf_path) and all(part not in {'', '.', '..'} and not part.startswith('.env') for part in pdf_path.split('/')[1:])
+            if safe_pdf:
+                return urlunsplit(('', '', quote(pdf_path, safe='/'), '', parts.fragment)), None
         if parts.query or path is None or is_file or not own_url(parts, port):
             names = sorted({name for name, _ in parse_qsl(parts.query, keep_blank_values=True) if re.fullmatch(r'[\w\[\]-]{1,40}', name)})
             option = next((item for name, item in parse_qsl(parts.query) if name == 'option' and re.fullmatch(r'com_[a-z0-9_]{1,40}', item)), None)
@@ -505,7 +515,26 @@ class Body:
                 if isinstance(child, str):
                     out.append(html_lib.escape(child, quote=False))
                     continue
-                if id(child) in self.skip or is_body_excluded(child):
+                if id(child) in self.skip:
+                    continue
+                if child.tag in {'iframe', 'video', 'embed', 'object', 'audio'}:
+                    # Preserve a safe video destination as an ordinary link;
+                    # never load third-party players or execute legacy embeds.
+                    raw = child.get('src') or child.get('data') or ''
+                    if not raw:
+                        raw = next((descendant.get('src') for descendant in select(child, lambda node: node.tag in {'embed', 'source'} and node.get('src'))), '')
+                    try:
+                        target = urlsplit(urljoin(self.base, raw))
+                        known = target.scheme in {'http', 'https'} and not target.username and not target.password and not target.port and target.hostname in {'www.youtube.com','youtube.com','youtu.be','www.youtube-nocookie.com','youtube-nocookie.com','player.vimeo.com','vimeo.com','www.vimeo.com'}
+                        if known and target.scheme == 'http': target = target._replace(scheme='https')
+                    except ValueError:
+                        known = False
+                    if raw and known:
+                        out.append(f'<p><a href="{html_lib.escape(urlunsplit(target), quote=True)}">Zobacz nagranie</a></p>')
+                    else:
+                        self.rejected.append(('unsupported-source-embed', child.tag))
+                    continue
+                if is_body_excluded(child):
                     continue
                 if child.tag == 'img':
                     out.append(self.image(child))

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import {
-  asObject, contentHref, courseHref, mediaUrl, plainText, excerpt, telHref,
+  asObject, contentHref, courseHref, mediaUrl, plainText, excerpt, phoneParts,
   type CourseDoc, type EventDoc, type PageDoc, type ProductDoc, type SessionDoc, type TripDoc,
 } from '@/lib/presentation'
 import { ProductCard } from '@/components/ProductCard'
@@ -32,7 +32,7 @@ export default async function Home() {
   const first = sessions[0]
   const firstCourse = first ? courses.docs.find((c) => c.id === (typeof first.course === 'object' ? first.course.id : first.course)) : undefined
   const hero = mediaUrl(s.heroImage, 'full') || '/img/wyprawa.jpg'
-  const tel = telHref(s.phone)
+  const phone = phoneParts(s.phone).find(part => part.href)
   const trip = trips.docs[0]
   const tripHref = trip ? hrefOf({ kind: 'trip', doc: trip }) : null
   return (
@@ -142,7 +142,7 @@ export default async function Home() {
               {s.address ? <p className="lead pre">{s.address}</p> : null}
             </div>
             <div className="cta-stack">
-              {tel ? <a className="btn btn-solid" href={tel}>{s.phone}</a> : null}
+              {phone ? <a className="btn btn-solid" href={phone.href!}>{phone.text}</a> : null}
               <Link className="btn btn-line" href="/kontakt.html">Napisz do nas</Link>
             </div>
           </div>

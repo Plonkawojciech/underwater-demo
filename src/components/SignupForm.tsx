@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { useActionState, useId } from 'react'
 import { createSignup, type FormState } from '@/lib/actions'
+import { formatDateTime } from '@/lib/presentation'
 import { Honeypot } from './FormBits'
 
 export type SignupSession = { id: number; title: string; startsAt: string; remaining?: number | null }
@@ -36,7 +37,8 @@ export function SignupForm({ courseId, courseName, sessions = [], privacyHref }:
           <select name="session" defaultValue={open[0] ? String(open[0].id) : ''}>
             {sessions.map((s) => (
               <option key={s.id} value={s.id} disabled={s.remaining === 0}>
-                {s.title}{s.remaining === 0 ? ' (brak miejsc)' : typeof s.remaining === 'number' ? ` (wolne: ${s.remaining})` : ''}
+                {/* Date and time (Warsaw) tell apart sessions that share a title. */}
+                {[s.title, formatDateTime(s.startsAt)].filter(Boolean).join(', ')}{s.remaining === 0 ? ' (brak miejsc)' : typeof s.remaining === 'number' ? ` (wolne: ${s.remaining})` : ''}
               </option>
             ))}
             <option value="">Inny termin, do ustalenia</option>

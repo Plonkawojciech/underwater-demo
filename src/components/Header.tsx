@@ -3,16 +3,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { useCart } from './cart'
-import { SITE_NAV, type NavItem } from './nav'
+import { isNavCurrent, SITE_NAV, type NavItem } from './nav'
+import { phoneParts } from '@/lib/presentation'
 
 export type { NavItem }
 export const DEFAULT_NAV = SITE_NAV
-
-const isCurrent = (path: string, item: NavItem) => {
-  if (path === item.href) return true
-  const prefixes = [item.href.replace(/\.html$/, ''), ...(item.match || [])].filter((p) => p && p !== '/')
-  return prefixes.some((p) => path === p || path.startsWith(p.endsWith('/') ? p : `${p}/`) || path === `${p}.html`)
-}
 
 // Focus <main> itself so the next Tab starts inside the content.
 const focusMain = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -53,7 +48,6 @@ export function Header({ nav = DEFAULT_NAV, phone }: { nav?: NavItem[]; phone?: 
   }, [open])
 
   const items = nav.length ? nav : DEFAULT_NAV
-  const tel = (phone || '').replace(/\s/g, '')
   const hasCount = ready && count > 0
   const cartLabel = hasCount ? `Koszyk, ${count} szt.` : 'Koszyk'
 
@@ -67,7 +61,7 @@ export function Header({ nav = DEFAULT_NAV, phone }: { nav?: NavItem[]; phone?: 
         </Link>
         <nav className="nav" aria-label="Główna">
           {items.map((i) => {
-            const on = isCurrent(path, i)
+            const on = isNavCurrent(path, i)
             return <Link key={i.href} href={i.href} className={on ? 'on' : undefined} aria-current={on ? 'page' : undefined}>{i.label}</Link>
           })}
         </nav>
@@ -94,11 +88,12 @@ export function Header({ nav = DEFAULT_NAV, phone }: { nav?: NavItem[]; phone?: 
       <nav ref={drawer} id="menu-mobilne" className="drawer" aria-label="Menu" hidden={!open} onClick={(e) => { if ((e.target as Element).closest('a')) setOpen(false) }}>
         <ul>
           {items.map((i) => {
-            const on = isCurrent(path, i)
+            const on = isNavCurrent(path, i)
             return <li key={i.href}><Link href={i.href} aria-current={on ? 'page' : undefined}>{i.label}</Link></li>
           })}
           <li><Link href="/koszyk" aria-current={path === '/koszyk' ? 'page' : undefined}>Koszyk{hasCount ? <span className="drawer-n">{count} szt.</span> : null}</Link></li>
-          {tel ? <li><a href={`tel:${tel}`} className="drawer-tel">{phone}</a></li> : null}
+          {/* One row per number: each keeps its own text and full-width touch target. */}
+          {phoneParts(phone).map((p, n) => <li key={`${p.text}-${n}`}>{p.href ? <a href={p.href} className="drawer-tel">{p.text}</a> : <span className="drawer-tel drawer-txt">{p.text}</span>}</li>)}
         </ul>
       </nav>
     </header>

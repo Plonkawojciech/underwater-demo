@@ -30,6 +30,15 @@ export async function proxy(request: NextRequest) {
   // Resolve permanent source redirects before React starts streaming a document.
   // Keeping this outside a page component preserves the actual HTTP 301 status.
   const pathname = request.nextUrl.pathname
+  // Payload decodes escaped separators in file names. Nested upload paths must
+  // not expose a Documents file through the parent Media collection.
+  if (/^\/api\/[^/]+\/file\/.*%(?:25)*(?:2f|5c)/i.test(pathname) || /^\/api\/media\/file\/[^/]+\//i.test(pathname)) return new NextResponse('Nieprawidłowy adres pliku.', { status: 400, headers: responseHeaders })
+  const pdfHeaders = { ...responseHeaders, 'Content-Disposition': 'attachment', 'Content-Security-Policy': "default-src 'none'; sandbox" }
+  if (/^\/api\/documents\/file\//.test(pathname)) {
+    const response = NextResponse.next()
+    for (const [key, value] of Object.entries(pdfHeaders)) response.headers.set(key, value)
+    return response
+  }
   if (['GET', 'HEAD'].includes(request.method) && pathname.length <= 2048 && !/^\/(?:api|admin|_next|img|favicon|robots|sitemap)(?:\/|\.|$)/.test(pathname)) {
     // A malformed percent-encoding is the client's error, not an outage.
     let decoded: string
@@ -40,6 +49,20 @@ export async function proxy(request: NextRequest) {
       if (!/[\\\u0000-\u001F]/.test(decoded) && !decoded.split('/').includes('..')) {
         const { db } = await import('./lib/data')
         const payload = await db()
+        if (/\.pdf$/i.test(decoded)) {
+          const document = (await payload.find({ collection: 'documents', where: { legacyPath: { equals: decoded } }, limit: 1, depth: 0, overrideAccess: false })).docs[0]
+          const target = document?.url ? new URL(document.url, ownOrigin).pathname : ''
+          if (/^\/api\/documents\/file\/[a-f0-9]{64}(?:-\d+)?\.pdf$/.test(target)) {
+            const response = NextResponse.rewrite(new URL(target, ownOrigin))
+            for (const [key, value] of Object.entries(pdfHeaders)) response.headers.set(key, value)
+            return response
+          }
+        }
+        if (decoded === '/index.php' && !request.nextUrl.search) {
+          const response = NextResponse.redirect(new URL('/', ownOrigin), 301)
+          for (const [key, value] of Object.entries(responseHeaders)) response.headers.set(key, value)
+          return response
+        }
         const published = (where: Where) => ({ and: [{ published: { equals: true } }, where] })
         // Stored addresses are canonical without a trailing slash; older rows may still carry one.
         const result = await payload.find({ collection: 'redirects', where: published({ from: { in: [pathname, decoded, pathname + '/', decoded + '/'] } }), limit: 1, depth: 0, overrideAccess: false })

@@ -12,7 +12,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     <div className="section light"><div className="wrap narrow">
       <h1 className="h2">Płatność testowa</h1>
       <Notice tone="warning" title="To nie jest prawdziwa płatność">
-        Wersja podglądowa sklepu. Żadne pieniądze nie zostaną pobrane, a towar nie zostanie wysłany. Przyciski poniżej tylko symulują odpowiedź operatora płatności.
+        Wersja podglądowa sklepu. Żadne pieniądze nie zostaną pobrane, a towar nie zostanie wysłany. Statusy płatności i obsługa zamówienia są testowe. Nie wykonuj przelewu.
       </Notice>
       <div className="pay-wrap">
         {isToken(token)

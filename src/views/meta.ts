@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import {
-  canonicalPath, categoryHref, contentHref, courseHref, excerpt, mediaUrl, plainText, productHref,
-  type MediaRef, type Seo,
+  canonicalPath, categoryHref, contentHref, courseHref, excerpt, listCanonical, mediaUrl, plainText, productHref,
+  type ListKind, type MediaRef, type Query, type Seo,
 } from '@/lib/presentation'
 import type { FixedRoute, Resolved } from '@/lib/source-routes'
 import { isPreview } from './query'
@@ -50,8 +50,18 @@ export function hrefOf(r: Resolved): string | null {
   }
 }
 
-export function resolvedMeta(r: Resolved): Metadata {
-  const path = hrefOf(r)
+/** Lists whose later pages hold different records; the calendar and contact page are not paged by URL here. */
+const LIST_KIND: Partial<Record<FixedRoute, ListKind>> = { shop: 'shop', courses: 'courses', trips: 'trips', news: 'paged', reports: 'paged', albums: 'paged' }
+function listKindOf(r: Resolved): ListKind | undefined {
+  if (r.kind === 'fixed') return LIST_KIND[r.route]
+  return r.kind === 'category' || r.kind === 'album' ? 'paged' : undefined
+}
+
+/** `q` is the request query; without it every canonical is the first page. */
+export function resolvedMeta(r: Resolved, q?: Query): Metadata {
+  const base = hrefOf(r)
+  const kind = listKindOf(r)
+  const path = base && kind && q ? listCanonical(base, kind, q) : base
   switch (r.kind) {
     case 'redirect': return {}
     case 'fixed': return r.source ? pageMeta({ title: r.source.title, description: r.source.lead || plainText(r.source.body), image: r.source.image, seo: r.source.seo, path }) : pageMeta({ ...FIXED_META[r.route], path })

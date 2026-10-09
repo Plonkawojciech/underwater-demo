@@ -49,15 +49,52 @@ function forgetKey(mem: { current: unknown }) {
 
 const message = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 300) : fallback)
 
+type PaymentOption = { id: string; label: string; offline: boolean; surchargeCents: number }
+type CheckoutMeta = {
+  paymentMethods: PaymentOption[]; paymentMethod: string; methodPayments: Record<string, string[]>
+  paymentSurchargeCents: number; freeShippingApplied: boolean; freeShippingThresholdCents: number | null
+  addressRequired: boolean; pickupPointRequired: boolean; offlineReservationMinutes: number | null
+}
+const int = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+const str = (v: unknown, max = 200): v is string => typeof v === 'string' && v.length > 0 && v.length <= max
+/**
+ * Payment and delivery metadata from the server quote. A response without it (an older
+ * server) falls back to the former behaviour: online payment and a required address.
+ */
+function checkoutMeta(q: Quote): CheckoutMeta {
+  const r = q as unknown as Record<string, unknown>
+  const payments = Array.isArray(r.paymentMethods) ? r.paymentMethods.filter((p): p is PaymentOption =>
+    !!p && typeof p === 'object' && str((p as PaymentOption).id, 40) && str((p as PaymentOption).label) && int((p as PaymentOption).surchargeCents)) : []
+  const methodPayments: Record<string, string[]> = {}
+  for (const m of q.deliveryMethods as Array<{ id: string; paymentMethods?: unknown }>) {
+    methodPayments[m.id] = Array.isArray(m.paymentMethods) ? m.paymentMethods.filter((id): id is string => str(id, 40)) : ['online']
+  }
+  return {
+    paymentMethods: payments.length ? payments : [{ id: 'online', label: 'Płatność online (symulacja testowa)', offline: false, surchargeCents: 0 }],
+    paymentMethod: str(r.paymentMethod, 40) ? r.paymentMethod : 'online',
+    methodPayments,
+    paymentSurchargeCents: int(r.paymentSurchargeCents) ? r.paymentSurchargeCents : 0,
+    freeShippingApplied: r.freeShippingApplied === true,
+    freeShippingThresholdCents: int(r.freeShippingThresholdCents) ? r.freeShippingThresholdCents : null,
+    addressRequired: r.addressRequired !== false,
+    pickupPointRequired: r.pickupPointRequired === true,
+    offlineReservationMinutes: int(r.offlineReservationMinutes) ? r.offlineReservationMinutes : null,
+  }
+}
+const duration = (minutes: number) => minutes % 60 === 0 ? `${minutes / 60} godz.` : `${minutes} min.`
+
 export function CartPage({ termsHref, privacyHref }: { termsHref?: string; privacyHref?: string }) {
   const { lines, remove, setQty, clear, ready, persisted } = useCart()
   const uid = useId()
   const [method, setMethod] = useState('')
+  const [payment, setPayment] = useState('')
+  // Last accepted quote keeps the choices visible when a changed selection is refused.
+  const [lastGood, setLastGood] = useState<Quote | null>(null)
   const [retry, setRetry] = useState(0)
   const [q, setQ] = useState<QuoteState>({ status: 'idle' })
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
-  const [done, setDone] = useState<{ number: string; path: string | null } | null>(null)
+  const [done, setDone] = useState<{ number: string; path: string | null; offline: boolean } | null>(null)
   const seq = useRef(0)
   const idem = useRef<{ fp: string; key: string } | null>(null)
 
@@ -65,7 +102,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
   const items = useMemo(() => lines.map((l) => ({
     id: l.id, ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.variant ? { variant: l.variant } : {}), qty: l.qty,
   })), [lines])
-  const reqKey = stableJson({ items, deliveryMethod: method || undefined })
+  const reqKey = stableJson({ items, deliveryMethod: method || undefined, paymentMethod: payment || undefined })
 
   useEffect(() => {
     if (!ready || !items.length) { setQ({ status: 'idle' }); return }
@@ -77,7 +114,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
         const res = await fetch('/api/store/quote', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ items, ...(method ? { deliveryMethod: method } : {}) }),
+          body: JSON.stringify({ items, ...(method ? { deliveryMethod: method } : {}), ...(payment ? { paymentMethod: payment } : {}) }),
           signal: ctrl.signal,
           cache: 'no-store',
           credentials: 'same-origin',
@@ -85,7 +122,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
         const data = await res.json().catch(() => null)
         if (my !== seq.current) return
         const quote = data?.ok === true ? parseQuote(data.quote) : null
-        if (quote) setQ({ status: 'ready', key: reqKey, quote })
+        if (quote) { setQ({ status: 'ready', key: reqKey, quote }); setLastGood(quote) }
         else setQ({ status: 'error', key: reqKey, message: message(data?.message, 'Nie udało się przeliczyć koszyka.') })
       } catch {
         if (ctrl.signal.aborted || my !== seq.current) return
@@ -93,7 +130,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
       }
     }, 250)
     return () => { clearTimeout(t); ctrl.abort() }
-    // reqKey carries items and method.
+    // reqKey carries items, delivery and payment.
   }, [reqKey, ready, retry]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const quote = q.status === 'ready' && q.key === reqKey ? q.quote : null
@@ -101,6 +138,11 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
   // The quote must cover exactly what is in the cart; otherwise the customer would order something else.
   const mismatch = !!quote && (quote.items.length !== lines.length || lines.some((l) => quoteLineFor(quote.items, l)?.qty !== l.qty))
   const canSubmit = !!quote && !mismatch && !sending
+  const options = quote || shown || lastGood
+  const meta = options ? checkoutMeta(options) : null
+  const totals = shown ? checkoutMeta(shown) : null
+  const chosen = quote ? checkoutMeta(quote) : null
+  const offline = !!chosen?.paymentMethods.find((p) => p.id === chosen.paymentMethod)?.offline
 
   if (done) {
     return (
@@ -108,7 +150,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
         <div className="done big" role="status">
           <h1 className="h2">Zamówienie testowe {done.number} zapisane</h1>
           {done.path
-            ? <><p className="lead lead-tight">Przechodzisz do testowej płatności.</p><Link className="btn btn-solid" href={done.path}>Przejdź do płatności testowej</Link></>
+            ? <><p className="lead lead-tight">{done.offline ? 'Przechodzisz do statusu zamówienia i instrukcji płatności testowej.' : 'Przechodzisz do testowej płatności.'}</p><Link className="btn btn-solid" href={done.path}>{done.offline ? 'Przejdź do statusu zamówienia' : 'Przejdź do płatności testowej'}</Link></>
             : <p className="lead lead-tight">Sklep nie zwrócił prawidłowego adresu płatności testowej. Zachowaj numer zamówienia i skontaktuj się ze sklepem.</p>}
         </div>
       </div></div>
@@ -130,9 +172,11 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
     if (!quote || mismatch || sending) return
     const fd = new FormData(e.currentTarget)
     const field = (n: string) => String(fd.get(n) || '').trim()
+    const selected = checkoutMeta(quote)
     const payload = {
       customerName: field('customerName'), email: field('email'), phone: field('phone'), address: field('address'),
-      items, deliveryMethod: quote.deliveryMethod,
+      items, deliveryMethod: quote.deliveryMethod, paymentMethod: selected.paymentMethod,
+      ...(selected.pickupPointRequired ? { pickupPoint: { id: field('pickupPointId'), name: field('pickupPointName'), address: field('pickupPointAddress') } } : {}),
       privacyAccepted: fd.get('privacyAccepted') === 'true', termsAccepted: fd.get('termsAccepted') === 'true',
       website: String(fd.get('website') || ''),
     }
@@ -154,7 +198,7 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
         const path = safePaymentPath(data.paymentURL, window.location.origin)
         forgetKey(idem)
         clear()
-        setDone({ number: data.number.slice(0, 40), path })
+        setDone({ number: data.number.slice(0, 40), path, offline })
         if (path) window.location.assign(path)
         return
       }
@@ -203,16 +247,19 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
         </ul>
         <dl className="sum" aria-busy={q.status === 'loading'}>
           <div><dt>Produkty</dt><dd>{shown ? formatMoney(shown.subtotalCents, shown.currency) : '…'}</dd></div>
-          <div><dt>Dostawa</dt><dd>{shown ? formatMoney(shown.deliveryCents, shown.currency) : '…'}</dd></div>
+          <div><dt>Dostawa{totals?.freeShippingApplied ? ' (darmowa od progu)' : ''}</dt><dd>{shown ? formatMoney(shown.deliveryCents, shown.currency) : '…'}</dd></div>
+          {shown && totals && totals.paymentSurchargeCents > 0 ? <div><dt>Dopłata za pobranie</dt><dd>{formatMoney(totals.paymentSurchargeCents, shown.currency)}</dd></div> : null}
           <div className="sum-total"><dt>Razem</dt><dd>{shown ? formatMoney(shown.totalCents, shown.currency) : '…'}</dd></div>
         </dl>
         <p className="note" role="status">
-          {q.status === 'loading' ? 'Przeliczanie cen w sklepie…' : quote ? 'Ceny i dostawa wyliczone przez sklep na podstawie aktualnego katalogu.' : ''}
+          {q.status === 'loading' ? 'Przeliczanie cen w sklepie…' : quote ? 'Ceny, dostawa i dopłaty wyliczone przez sklep na podstawie aktualnego katalogu.' : ''}
         </p>
+        {quote && totals?.freeShippingThresholdCents != null && !totals.freeShippingApplied
+          ? <p className="note">Darmowa dostawa od {formatMoney(totals.freeShippingThresholdCents, quote.currency)} wartości produktów.</p> : null}
         {q.status === 'error' && q.key === reqKey ? (
           <Notice tone="error" live title="Nie można przeliczyć koszyka">
             <p>{q.message}</p>
-            <p><button type="button" className="linkbtn" onClick={() => setRetry((n) => n + 1)}>Spróbuj ponownie</button></p>
+            <p><button type="button" className="linkbtn" onClick={() => { setMethod(''); setPayment(''); setRetry((n) => n + 1) }}>Spróbuj ponownie</button></p>
           </Notice>
         ) : null}
         {mismatch ? <Notice tone="warning" live>Koszyk różni się od tego, co sklep może przyjąć. Popraw zaznaczone pozycje.</Notice> : null}
@@ -224,22 +271,51 @@ export function CartPage({ termsHref, privacyHref }: { termsHref?: string; priva
             To sklep w wersji podglądowej. Zamówienie zostanie zapisane jako testowe, płatność jest symulowana. Nic nie zostanie pobrane ani wysłane.
           </Notice>
         </div>
-        {shown && shown.deliveryMethods.length > 0 ? (
+        {options && meta && options.deliveryMethods.length > 0 ? (
           <fieldset className="delivery">
             <legend>Dostawa</legend>
-            {shown.deliveryMethods.map((m) => (
+            {options.deliveryMethods.map((m) => (
               <label key={m.id} className="check">
-                <input type="radio" name="delivery" value={m.id} checked={(method || shown.deliveryMethod) === m.id} onChange={() => setMethod(m.id)} />
-                <span>{m.label} <span className="mono">{formatMoney(m.priceCents, shown.currency)}</span></span>
+                <input type="radio" name="delivery" value={m.id} checked={(method || options.deliveryMethod) === m.id} onChange={() => {
+                  setMethod(m.id)
+                  // Keep the payment only where the server allows it for the new delivery.
+                  if (payment && !(meta.methodPayments[m.id] || []).includes(payment)) setPayment('')
+                }} />
+                <span>{m.label} <span className="mono">{formatMoney(m.priceCents, options.currency)}</span></span>
               </label>
             ))}
+          </fieldset>
+        ) : null}
+        {meta?.pickupPointRequired ? (
+          <fieldset className="delivery">
+            <legend>Punkt odbioru</legend>
+            <Notice tone="info">Wersja testowa nie łączy się z mapą ani systemem przewoźnika. Wpisz punkt ręcznie; sklep nie sprawdza, czy taki punkt istnieje.</Notice>
+            <label>Kod punktu<input name="pickupPointId" required maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" autoComplete="off" spellCheck={false} /></label>
+            <label>Nazwa punktu<input name="pickupPointName" required maxLength={120} autoComplete="off" /></label>
+            <label>Adres punktu<input name="pickupPointAddress" required maxLength={300} autoComplete="off" /></label>
+          </fieldset>
+        ) : null}
+        {options && meta ? (
+          <fieldset className="delivery">
+            <legend>Płatność</legend>
+            {meta.paymentMethods.map((p) => (
+              <label key={p.id} className="check">
+                <input type="radio" name="payment" value={p.id} checked={(payment || meta.paymentMethod) === p.id} onChange={() => setPayment(p.id)} />
+                <span>{p.label}{p.surchargeCents > 0 ? <span className="mono">+{formatMoney(p.surchargeCents, options.currency)}</span> : null}</span>
+              </label>
+            ))}
+            {(payment || meta.paymentMethod) === 'bank_transfer' ? (
+              <p className="note note-first">Po złożeniu zamówienia zobaczysz instrukcję przelewu testowego. Wersja podglądowa nie podaje numeru rachunku — nie wykonuj przelewu.{meta.offlineReservationMinutes ? ` Towar pozostaje zarezerwowany przez ${duration(meta.offlineReservationMinutes)}` : ''}</p>
+            ) : (payment || meta.paymentMethod) === 'cod' ? (
+              <p className="note note-first">Zapłata przy odbiorze (symulacja). Przesyłka nie zostanie nadana.{meta.offlineReservationMinutes ? ` Towar pozostaje zarezerwowany przez ${duration(meta.offlineReservationMinutes)} do testowego nadania.` : ''}</p>
+            ) : null}
           </fieldset>
         ) : null}
         <h2 className="subh">Dane zamawiającego</h2>
         <label>Imię i nazwisko<input name="customerName" required autoComplete="name" maxLength={120} /></label>
         <label>E-mail<input name="email" type="email" required autoComplete="email" maxLength={200} /></label>
         <label>Telefon<input name="phone" type="tel" required autoComplete="tel" maxLength={40} /></label>
-        <label>Adres dostawy<textarea name="address" rows={3} required autoComplete="street-address" maxLength={500} /></label>
+        <label>{meta && !meta.addressRequired ? 'Adres (opcjonalnie)' : 'Adres dostawy'}<textarea name="address" rows={3} required={!meta || meta.addressRequired} autoComplete="street-address" maxLength={500} /></label>
         <label className="check">
           <input type="checkbox" name="termsAccepted" value="true" required />
           <span>Akceptuję regulamin sklepu. {termsHref ? <Link href={termsHref} className="textlink">Regulamin</Link> : <span className="muted">Regulamin nie jest jeszcze opublikowany w tej wersji podglądowej.</span>}</span>

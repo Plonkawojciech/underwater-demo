@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { useActionState, useId } from 'react'
 import { createContact, subscribeNewsletter, type FormState } from '@/lib/actions'
+import type { ContactContext } from '@/lib/presentation'
 import { Honeypot } from './FormBits'
 
 const initial: FormState = { ok: false, message: '' }
@@ -12,8 +13,14 @@ function Privacy({ href }: { href?: string }) {
     : <span className="muted">Polityka prywatności nie jest jeszcze opublikowana w tej wersji podglądowej.</span>
 }
 
-/** Contact message, sent as a server action (POST); nothing lands in the URL. */
-export function ContactForm({ privacyHref }: { privacyHref?: string }) {
+const CONTEXT_LABEL: Record<ContactContext['kind'], string> = { product: 'Pytanie o produkt', trip: 'Pytanie o wyjazd' }
+
+/**
+ * Contact message, sent as a server action (POST); nothing lands in the URL. `context` was read
+ * on the server from a published record; only its kind and id are posted, and the server reads
+ * the record again before storing it with the message.
+ */
+export function ContactForm({ privacyHref, context }: { privacyHref?: string; context?: ContactContext | null }) {
   const [state, action, pending] = useActionState<FormState, FormData>(createContact, initial)
   const uid = useId()
   if (state.ok) {
@@ -26,6 +33,15 @@ export function ContactForm({ privacyHref }: { privacyHref?: string }) {
   return (
     <form action={action} className="form" aria-describedby={state.message ? `${uid}-err` : undefined}>
       <h2 className="subh subh-first">Napisz do nas</h2>
+      {context ? (
+        <div className="enquiry">
+          <p className="enquiry-k">{CONTEXT_LABEL[context.kind]}</p>
+          <p className="enquiry-t"><Link href={context.href} className="textlink">{context.title}</Link></p>
+          <Link href="/kontakt.html" className="enquiry-x">Napisz bez wskazania {context.kind === 'product' ? 'produktu' : 'wyjazdu'}</Link>
+          <input type="hidden" name="contextKind" value={context.kind} />
+          <input type="hidden" name="contextID" value={context.id} />
+        </div>
+      ) : null}
       <label>Imię i nazwisko<input name="name" required autoComplete="name" maxLength={120} /></label>
       <div className="form-row">
         <label>E-mail<input name="email" type="email" required autoComplete="email" maxLength={200} /></label>

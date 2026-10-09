@@ -15,7 +15,19 @@ export async function contact(payload: Payload, input: FormInput) {
   const data = common(input)
   if (!data.message) throw new InputError('Napisz wiadomość.')
   return transaction(payload, 'form-service', async req => {
-    const created = await payload.create({ collection: 'contacts', data, req, overrideAccess: true })
+    let context: { contextKind?: 'product' | 'trip'; contextID?: number; contextTitle?: string; contextPath?: string } = {}
+    if (input.contextKind != null && input.contextKind !== '' || input.contextID != null && input.contextID !== '') {
+      if (input.contextKind !== 'product' && input.contextKind !== 'trip') throw new InputError('Nieprawidłowy temat zapytania.')
+      const value = typeof input.contextID === 'string' && /^[1-9]\d{0,9}$/.test(input.contextID) ? Number(input.contextID) : input.contextID
+      const id = positiveID(value)
+      const collection = input.contextKind === 'product' ? 'products' : 'trips'
+      const record = (await payload.find({ collection, where: { and: [{ id: { equals: id } }, { published: { equals: true } }] }, limit: 1, depth: 0, req, overrideAccess: false })).docs[0]
+      if (!record) throw new InputError('Przedmiot zapytania nie jest dostępny.', 409)
+      context = input.contextKind === 'product'
+        ? { contextKind: 'product', contextID: id, contextTitle: (record as { name: string }).name, contextPath: (record as { legacyPath?: string; slug: string }).legacyPath || '/' + (record as { slug: string }).slug + '.html' }
+        : { contextKind: 'trip', contextID: id, contextTitle: (record as { title: string }).title, contextPath: (record as { path: string }).path }
+    }
+    const created = await payload.create({ collection: 'contacts', data: { ...data, ...context }, req, overrideAccess: true })
     await payload.create({ collection: 'outbox', data: { deduplicationKey: `contact:${created.id}`, recipient: data.email, subject: 'Testowe zgłoszenie kontaktowe', body: 'Zapisaliśmy wiadomość w podglądzie projektu. Ta wiadomość jest przechwycona w skrzynce testowej i nie została wysłana.' }, req, overrideAccess: true })
     return { ok: true, message: 'Zapisaliśmy zgłoszenie. W tym podglądzie wiadomości pozostają w skrzynce testowej.' }
   })

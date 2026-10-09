@@ -55,8 +55,9 @@ type DocKind = Exclude<Resolved['kind'], 'fixed' | 'redirect'>
 const COLLECTION: Record<DocKind, RouteCollection> = {
   product: 'products', category: 'categories', course: 'courses', page: 'pages', trip: 'trips', album: 'albums', event: 'events',
 }
-// Depth needed by each detail view (relations shown on the page).
-const DEPTH: Record<DocKind, number> = { product: 2, category: 1, course: 1, page: 2, trip: 2, album: 1, event: 2 }
+// Depth needed by each detail view (relations shown on the page). Albums stay at media ids
+// (depth 0, or the album relation at depth 1): views read only the photos they show.
+const DEPTH: Record<DocKind, number> = { product: 2, category: 1, course: 1, page: 1, trip: 1, album: 0, event: 2 }
 // When two records claim the same address, the earlier kind wins.
 const ORDER: DocKind[] = ['product', 'category', 'course', 'page', 'trip', 'album', 'event']
 

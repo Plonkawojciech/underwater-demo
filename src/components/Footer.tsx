@@ -1,10 +1,10 @@
 import Link from 'next/link'
-import { safeExternalUrl, telHref, type LegalLink, type SettingsDoc } from '@/lib/presentation'
+import { safeExternalUrl, type LegalLink, type SettingsDoc } from '@/lib/presentation'
 import type { NavItem } from './nav'
 import { CookieSettings } from './CookieSettings'
+import { PhoneLinks } from './Phone'
 
 export function Footer({ s, nav, legal, preview }: { s: SettingsDoc; nav: NavItem[]; legal: LegalLink[]; preview: boolean }) {
-  const tel = telHref(s.phone)
   const fb = safeExternalUrl(s.facebook)
   const yt = safeExternalUrl(s.youtube)
   return (
@@ -15,11 +15,11 @@ export function Footer({ s, nav, legal, preview }: { s: SettingsDoc; nav: NavIte
       </div>
       <nav aria-label="Stopka"><h2 className="foot-h">Serwis</h2><ul>
         {nav.map((n) => <li key={n.href}><Link href={n.href}>{n.label}</Link></li>)}
-        <li><Link href="/relacje.html">Relacje</Link></li>
+        <li><Link href="/relacje-z-wypraw.html">Relacje</Link></li>
         <li><Link href="/koszyk">Koszyk</Link></li>
       </ul></nav>
       <div><h2 className="foot-h">Kontakt</h2><ul>
-        {s.phone ? <li>{tel ? <a href={tel}>{s.phone}</a> : s.phone}</li> : null}
+        {s.phone?.trim() ? <li><PhoneLinks value={s.phone} /></li> : null}
         {s.email ? <li><a href={`mailto:${s.email}`}>{s.email}</a></li> : null}
         {fb ? <li><a href={fb} rel="noopener noreferrer" target="_blank">Facebook<span className="sr-only"> (nowa karta)</span></a></li> : null}
         {yt ? <li><a href={yt} rel="noopener noreferrer" target="_blank">YouTube<span className="sr-only"> (nowa karta)</span></a></li> : null}

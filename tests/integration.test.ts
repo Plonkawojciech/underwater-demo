@@ -143,7 +143,7 @@ test('operational changes require the right role and preserve stock with an audi
   await updateOperationalStatus(payload, admin, { collection: 'orders', id: order.id, status: 'cancelled' })
   await updateOperationalStatus(payload, admin, { collection: 'orders', id: order.id, status: 'cancelled' })
   assert.equal((await payload.findByID({ collection: 'products', id: p.id })).stock, 1)
-  assert.equal((await payload.count({ collection: 'audit-events', where: { targetId: { equals: order.id } } })).totalDocs, 2)
+  assert.equal((await payload.count({ collection: 'audit-events', where: { targetId: { equals: order.id } } })).totalDocs, 1, 'a repeated cancellation is a no-op without a second audit mutation')
   await assert.rejects(adjustInventory(payload, editor, { id: p.id, stock: 3, expectedStock: 1 }), /uprawnień/)
   await adjustInventory(payload, admin, { id: p.id, stock: 3, expectedStock: 1 })
   await assert.rejects(adjustInventory(payload, admin, { id: p.id, stock: 4, expectedStock: 1 }), /Stan zmienił/)
@@ -489,4 +489,47 @@ test('split module instances share the held transaction context and refuse neste
   }
   assert.equal(openSessions(), 0)
   await quickWrite('after-split-context')
+})
+
+test('enquiries store trusted published product context and reject draft or malformed references', async () => {
+  const p = await product(0, { name: 'TEST pytanie o produkt' })
+  const input = { name: 'TEST pytający', email: 'context@example.invalid', message: 'Pytanie o dostępność', privacyAccepted: true, contextKind: 'product', contextID: String(p.id), contextTitle: 'Nieufny tytuł klienta', contextPath: 'https://example.invalid' }
+  await contact(payload, input)
+  const record = (await payload.find({ collection: 'contacts', where: { email: { equals: input.email } }, depth: 0 })).docs[0]
+  assert.equal(record.contextKind, 'product'); assert.equal(record.contextID, p.id)
+  assert.equal(record.contextTitle, p.name); assert.equal(record.contextPath, `/${p.slug}.html`)
+  const draft = await product(0, { published: false })
+  const before = (await payload.count({ collection: 'contacts' })).totalDocs
+  for (const changes of [{ contextID: draft.id }, { contextID: '../1' }, { contextID: 1.5 }, { contextKind: 'users' }, { contextKind: '', contextID: '1' }]) await assert.rejects(contact(payload, { ...input, ...changes }), InputError)
+  assert.equal((await payload.count({ collection: 'contacts' })).totalDocs, before)
+})
+
+test('catalog search matches Polish Unicode casing, normalized text and SKU without trusting a supplied index', async () => {
+  const p = await product(1, { name: 'ŁĄCZNIK ŻÓŁTY', manufacturer: 'ŹRÓDŁO', sku: 'SKU-TEST-Ł', searchText: 'untrusted supplied index' })
+  const { catalogSearchText } = await import('../src/lib/catalog-search')
+  for (const query of ['łącznik', 'ŻÓŁTY'.normalize('NFD'), 'źródło', 'sku-test-ł']) {
+    const result = await payload.find({ collection: 'products', where: { and: [{ id: { equals: p.id } }, { searchText: { like: catalogSearchText(query) } }] }, depth: 0, overrideAccess: false })
+    assert.equal(result.totalDocs, 1, query)
+  }
+  assert.equal(p.searchText, 'łącznik żółty źródło sku-test-ł')
+  await payload.update({ collection: 'products', id: p.id, data: { name: 'ĄŻUR', searchText: 'forged index' } })
+  const changed = await payload.findByID({ collection: 'products', id: p.id })
+  assert.match(changed.searchText || '', /^ążur /)
+  assert.doesNotMatch(changed.searchText || '', /forged|łącznik/)
+})
+
+
+test('the additive search migration backfills existing Polish catalog facts unchanged', async () => {
+  const p = await product(2, { name: 'ŁĄCZNIK ĄŻUR', manufacturer: 'ŹRÓDŁO', sku: 'TEST-Ł', price: 12.34, priceCents: 1234 })
+  const original = await payload.findByID({ collection: 'products', id: p.id, depth: 0 })
+  const drizzle = payload.db.drizzle
+  await drizzle.run(sql`ALTER TABLE products DROP COLUMN search_text`)
+  const { up, down } = await import('../src/migrations/20261009_005425_underwater_unicode_catalog_search')
+  await up({ db: drizzle } as never)
+  const changed = await payload.findByID({ collection: 'products', id: p.id, depth: 0 })
+  assert.equal(changed.searchText, 'łącznik ążur źródło test-ł')
+  const { searchText: _before, ...before } = original
+  const { searchText: _after, ...after } = changed
+  assert.deepEqual(after, before)
+  await assert.rejects(down(), /Destructive rollback is disabled/)
 })

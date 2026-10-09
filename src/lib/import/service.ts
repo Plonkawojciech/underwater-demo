@@ -4,11 +4,12 @@ import { lstat, open, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type { CollectionSlug, Payload, PayloadRequest, Where } from 'payload'
 import { sanitizeContent } from '../html'
+import { verifyDocumentBytes } from '../document-upload'
 import { transaction } from '../commerce/transaction'
 import { validateEnvironment } from '../environment'
 import {
   IMPORTER_VERSION, ImportError, fieldSpecs, importCollections, legacyPath, mediaSourcePath, relationSpecs, routeKey, stableHash, validateBundle,
-  type ImportCollection, type ImportMedia, type ImportSource, type PreparedEntity, type ValidatedBundle,
+  type ImportCollection, type ImportMedia, type ImportDocument, type ImportSource, type PreparedEntity, type ValidatedBundle,
 } from './bundle'
 
 export { ImportError }
@@ -21,7 +22,7 @@ const MAX_MEDIA_BYTES = 12 * 1024 * 1024
 const MAX_UNRESOLVED = 10_000
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif' }
 // Payload stores JPEG and PNG originals verbatim; GIF, WebP and AVIF are re-encoded by sharp.
-const VERBATIM = new Set(['image/jpeg', 'image/png'])
+const VERBATIM = new Set(['image/jpeg', 'image/png', 'application/pdf'])
 const HASH = /^v2:([a-f0-9]{64}):([a-f0-9]{64})$/
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex')
 const idOf = (value: unknown): number | null => value == null ? null : typeof value === 'object' ? ((value as { id?: number }).id ?? null) : value as number
@@ -105,7 +106,7 @@ async function storedFileProblem(directory: string, doc: Doc): Promise<string | 
 // ---------------------------------------------------------------------------
 // Data mapping, projection and reconciliation decisions
 
-type Context = { ids: Map<string, number>; mediaURL: Map<string, string>; mediaByPath: Map<string, string>; mediaKeys: Set<string> }
+type Context = { ids: Map<string, number>; mediaURL: Map<string, string>; mediaByPath: Map<string, string>; mediaKeys: Set<string>; documentByPath: Map<string, string>; documentURL: Map<string, string> }
 type Prepared = { data: Record<string, unknown>; hash: string; stock: number | null; variantStocks: Array<number | null>; notes: string[] }
 type Decision = { action: 'create' } | { action: 'update'; data: Record<string, unknown> } | { action: 'unchanged' | 'preserved' } | { action: 'conflict'; reason: string }
 
@@ -132,10 +133,19 @@ function prepare(entity: PreparedEntity, ctx: Context): Prepared {
     if (!ctx.mediaKeys.has(key)) { notes.add(`html-image-not-downloaded:${entity.id}:${key}`); return undefined }
     return ctx.mediaURL.get(key)
   }
+  const resolveLink = (href: string) => {
+    const found = mediaSourcePath(href)
+    if (!('path' in found) || !/\.pdf$/i.test(found.path)) return href
+    const key = ctx.documentByPath.get(found.path)
+    if (!key || !ctx.documentURL.has(key)) { notes.add(`html-document-not-downloaded:${entity.id}:${found.path}`); return href }
+    // Keep the source address and source filename; the private proxy serves
+    // the immutable own copy behind the same legacy path.
+    return href
+  }
   const data: Record<string, unknown> = {}
   for (const [name, spec] of Object.entries(fieldSpecs[entity.collection])) {
     const value = entity.data[name]
-    data[name] = spec.kind === 'html' ? (value == null ? null : sanitizeContent(value as string, resolveImage)) : mapMedia(spec, value, ctx)
+    data[name] = spec.kind === 'html' ? (value == null ? null : sanitizeContent(value as string, resolveImage, resolveLink)) : mapMedia(spec, value, ctx)
   }
   for (const [name, spec] of Object.entries(relationSpecs[entity.collection])) {
     const reference = entity.relations[name]
@@ -301,7 +311,7 @@ async function touchRun(payload: Payload, lease: Lease, data: Record<string, unk
 // ---------------------------------------------------------------------------
 // Import
 
-const emptyCounts = () => ({ created: 0, updated: 0, unchanged: 0, preserved: 0, conflicts: 0, mediaCreated: 0, mediaExisting: 0, settingsUpdated: 0, settingsConflicts: 0 })
+const emptyCounts = () => ({ created: 0, updated: 0, unchanged: 0, preserved: 0, conflicts: 0, mediaCreated: 0, mediaExisting: 0, documentsCreated: 0, documentsExisting: 0, settingsUpdated: 0, settingsConflicts: 0 })
 const finalList = (items: Set<string>) => {
   const list = [...items].sort()
   return list.length > MAX_UNRESOLVED ? [...list.slice(0, MAX_UNRESOLVED), `truncated:${list.length - MAX_UNRESOLVED}`] : list
@@ -326,6 +336,21 @@ export async function importBundle(payload: Payload, raw: unknown, mediaRoot: st
     sources.push(source)
   }
 
+  const documentSources: Array<{ descriptor: ImportDocument; filePath: string; sourcePath: string }> = []
+  for (const descriptor of validated.documents) {
+    const candidate = path.resolve(root, descriptor.path)
+    if (!candidate.startsWith(root + path.sep)) throw new ImportError('Document path escaped the source root.')
+    const info = await lstat(candidate)
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 8 * 1024 * 1024) throw new ImportError('Unsupported source document file.')
+    const filePath = await realpath(candidate)
+    if (!filePath.startsWith(root + path.sep)) throw new ImportError('Document path escaped the source root.')
+    const bytes = await readVerifiedFile(filePath, descriptor.sha256)
+    await verifyDocumentBytes(bytes)
+    const source = mediaSourcePath(descriptor.url)
+    if (!('path' in source)) throw new ImportError('Invalid document source URL.')
+    documentSources.push({ descriptor, filePath, sourcePath: source.path })
+  }
+
   // 3. Read-only database preflight.
   await assertNoForeignCollisions(payload, validated)
   const directory = mediaDirectory(payload)
@@ -336,8 +361,24 @@ export async function importBundle(payload: Payload, raw: unknown, mediaRoot: st
     const doc = storedMedia.get(descriptor.key)
     if (doc) mediaIssues.set(descriptor.key, await storedIssues(doc, descriptor))
   }
-  const ctx: Context = { ids: new Map(), mediaURL: new Map(), mediaByPath: validated.mediaByPath, mediaKeys: new Set(validated.media.map(media => media.key)) }
+  const ctx: Context = { ids: new Map(), mediaURL: new Map(), mediaByPath: validated.mediaByPath, mediaKeys: new Set(validated.media.map(media => media.key)), documentByPath: validated.documentByPath, documentURL: new Map() }
   const mediaURL = (doc: Doc) => typeof doc.url === 'string' ? new URL(doc.url, 'http://localhost').pathname : undefined
+  const documentDirectory = path.resolve((payload.collections.documents.config.upload as { staticDir: string }).staticDir)
+  if (documentDirectory !== path.join(directory, 'documents')) throw new ImportError('Document storage does not target the isolated media directory.')
+  const storedDocuments = await byLegacyKeys(payload, 'documents', validated.documents.map(doc => doc.key))
+  const documentIssues = new Map<string, string[]>()
+  for (const source of documentSources) {
+    const { descriptor, sourcePath } = source
+    const existing = storedDocuments.get(descriptor.key)
+    const claimed = (await findAll(payload, 'documents', { legacyPath: { equals: sourcePath } }))[0]
+    if (claimed && claimed.legacyKey !== descriptor.key) throw new ImportError('Document URL belongs to a different stored record.')
+    if (existing) {
+      const problem = await storedFileProblem(documentDirectory, existing)
+      const issues = [existing.sourceHash !== descriptor.sha256 ? `document-replacement:${descriptor.key}` : null, existing.legacyPath !== sourcePath ? `document-route-changed:${descriptor.key}` : null, problem ? `${problem.replace(/^media-/, 'document-')}:${descriptor.key}` : null].filter(Boolean) as string[]
+      documentIssues.set(descriptor.key, issues)
+    }
+  }
+
 
   if (dryRun) {
     const plan = { ...emptyCounts(), mediaCreated: 0 }
@@ -348,6 +389,12 @@ export async function importBundle(payload: Payload, raw: unknown, mediaRoot: st
       if (url) ctx.mediaURL.set(descriptor.key, url)
       if (doc) plan.mediaExisting++; else plan.mediaCreated++
       for (const issue of mediaIssues.get(descriptor.key) || []) unresolved.add(issue)
+    })
+    documentSources.forEach(({ descriptor }, index) => {
+      const doc = storedDocuments.get(descriptor.key)
+      ctx.documentURL.set(descriptor.key, doc ? mediaURL(doc)! : `/api/documents/file/dry-run-${index}.pdf`)
+      if (doc) plan.documentsExisting++; else plan.documentsCreated++
+      for (const issue of documentIssues.get(descriptor.key) || []) unresolved.add(issue)
     })
     const ours = new Map<string, Doc>()
     for (const collection of importCollections) for (const [key, doc] of await byLegacyKeys(payload, collection, validated.entities.filter(entity => entity.collection === collection).map(entity => entity.key))) ours.set(`${collection}:${key}`, doc)
@@ -360,7 +407,7 @@ export async function importBundle(payload: Payload, raw: unknown, mediaRoot: st
       for (const note of prepared.notes) unresolved.add(note)
     })
     if (validated.settings) for (const name of await settingsChanges(payload, validated.settings, ctx).then(result => result.conflicts)) unresolved.add(`settings-conflict:${name}`)
-    return { dryRun: true as const, runKey, status: 'dry-run' as const, sourceComplete: false, sourceVerification: verification, entities: validated.entities.length, media: sources.length, plan, unresolved: finalList(unresolved), checked: ['bundle-schema', 'relations', 'paths', 'media-digests', 'database-collisions', 'stored-media-files', 'manual-edits', 'variant-topology', 'session-capacity', 'html-images', 'settings'] }
+    return { dryRun: true as const, runKey, status: 'dry-run' as const, sourceComplete: false, sourceVerification: verification, entities: validated.entities.length, media: sources.length, documents: documentSources.length, plan, unresolved: finalList(unresolved), checked: ['bundle-schema', 'relations', 'paths', 'media-digests', 'database-collisions', 'stored-media-files', 'manual-edits', 'variant-topology', 'session-capacity', 'html-images', 'public-pdf-documents', 'settings'] }
   }
 
   // 4. Live import under an exclusive run claim.
@@ -388,6 +435,23 @@ export async function importBundle(payload: Payload, raw: unknown, mediaRoot: st
       const url = mediaURL(doc)
       if (url) ctx.mediaURL.set(descriptor.key, url)
       for (const issue of issues) unresolved.add(issue)
+    }
+
+    for (const source of documentSources) {
+      await heartbeat()
+      const { descriptor, filePath, sourcePath } = source
+      let doc = (await findAll(payload, 'documents', { legacyKey: { equals: descriptor.key } }))[0]
+      if (!doc) {
+        const bytes = await readVerifiedFile(filePath, descriptor.sha256)
+        doc = await payload.create({ collection: 'documents', context: { systemAction: SYSTEM }, overrideAccess: true, depth: 0, data: { title: descriptor.title, legacyKey: descriptor.key, legacyPath: sourcePath, sourceHash: descriptor.sha256, importRun: runKey }, file: { data: bytes, mimetype: 'application/pdf', name: descriptor.sha256 + '.pdf', size: bytes.length } }) as unknown as Doc
+        counts.documentsCreated++
+      } else counts.documentsExisting++
+      const url = mediaURL(doc)
+      if (url) ctx.documentURL.set(descriptor.key, url)
+      const issues = documentIssues.get(descriptor.key) || []
+      const problem = await storedFileProblem(documentDirectory, doc)
+      for (const issue of [...issues, ...(problem ? [`${problem.replace(/^media-/, 'document-')}:${descriptor.key}`] : [])]) unresolved.add(issue)
+      // Preserve staff edits and original bytes; source replacement is review-only.
     }
 
     for (const entity of validated.entities) {
@@ -455,7 +519,7 @@ async function settingsChanges(payload: Payload, settings: Record<string, unknow
 
 async function reconcile(payload: Payload, validated: ValidatedBundle, fullSource: boolean, unresolved: Set<string>) {
   const result: Record<string, { expected: number; found: number; notInBundle: number }> = {}
-  const groups: Array<[CollectionSlug, string[]]> = [['media', validated.media.map(media => media.key)], ...importCollections.map(collection => [collection, validated.entities.filter(entity => entity.collection === collection).map(entity => entity.key)] as [CollectionSlug, string[]])]
+  const groups: Array<[CollectionSlug, string[]]> = [['media', validated.media.map(media => media.key)], ['documents', validated.documents.map(doc => doc.key)], ...importCollections.map(collection => [collection, validated.entities.filter(entity => entity.collection === collection).map(entity => entity.key)] as [CollectionSlug, string[]])]
   for (const [collection, keys] of groups) {
     const present = new Set((await findAll(payload, collection, { legacyKey: { exists: true } }, undefined, { legacyKey: true })).map(doc => doc.legacyKey as string))
     const expected = new Set(keys)

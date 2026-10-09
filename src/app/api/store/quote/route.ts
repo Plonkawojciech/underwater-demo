@@ -6,11 +6,11 @@ import { errorResponse, json, jsonBody, rateLimit, requireOrigin } from '@/lib/h
 export async function POST(request: Request) {
   try {
     requireOrigin(request); rateLimit('quote:global', 600)
-    const body = await jsonBody(request) as { items?: unknown; deliveryMethod?: unknown }
+    const body = await jsonBody(request) as { items?: unknown; deliveryMethod?: unknown; paymentMethod?: unknown }
     const payload = await db()
     const current = await transaction(payload, 'reservation-service', async req => {
       await expireReservations(payload, req)
-      return quote(payload, body?.items, body?.deliveryMethod, req)
+      return quote(payload, body?.items, body?.deliveryMethod, req, body?.paymentMethod)
     })
     return json({ ok: true, quote: current })
   } catch (error) { return errorResponse(error) }

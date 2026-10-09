@@ -39,3 +39,37 @@ print(json.dumps({'output':output,'peak':peak,'fullActive':full_active,'closedAc
   assert.equal(output.fullActive, 0)
   assert.equal(output.closedActive, 0)
 })
+
+test('cached-only media replay never opens source requests and reports missing cached bytes', () => {
+  const bundled = '/Users/wojciechplonka/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3'
+  const program = `
+import sys,json
+sys.path.insert(0,'scripts/source')
+from public_media_fetch import prefetch
+calls=[]
+def forbidden(row):
+ calls.append(row['key']);raise AssertionError('Source network forbidden')
+rows=[{'key':'present'},{'key':'missing'}]
+output=[[i,row['key'],bool(previous),body is None,type(error).__name__ if error else None] for i,row,previous,body,error in prefetch(rows,lambda row:{'sha256':'verified'} if row['key']=='present' else None,forbidden,cached_only=True)]
+print(json.dumps({'calls':calls,'output':output}))
+`
+  const result = spawnSync(existsSync(bundled) ? bundled : 'python3', ['-c', program], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), { calls: [], output: [[0, 'present', true, true, null], [1, 'missing', false, true, 'FileNotFoundError']] })
+})
+
+test('known source failures stay blocked while previously unseen media may be acquired', () => {
+  const bundled = '/Users/wojciechplonka/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3'
+  const program = `
+import sys,json
+sys.path.insert(0,'scripts/source')
+from public_media_fetch import prefetch
+calls=[]
+def fetch(row):calls.append(row['key']);return b'synthetic'
+output=[[row['key'],bool(body),type(error).__name__ if error else None] for _,row,_,body,error in prefetch([{'key':'blocked'},{'key':'new'}],lambda row:None,fetch,blocked_keys={'blocked'})]
+print(json.dumps({'calls':calls,'output':output}))
+`
+  const result = spawnSync(existsSync(bundled) ? bundled : 'python3', ['-c', program], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), { calls: ['new'], output: [['blocked', false, 'PermissionError'], ['new', true, null]] })
+})
