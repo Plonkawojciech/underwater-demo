@@ -67,3 +67,14 @@ Root wykona również pełne native oraz uzgodnione gate migracji i SEO. Nie pow
 Ta runda nie uruchamia adaptera konkretnego operatora, rzeczywistej poczty, nadania, zwrotu pieniędzy lub migracji klienta. Nie potwierdza bieżącego SQL, rzeczywistych stanów i miejsc, zatwierdzonych stawek lub dokumentów handlowych. Osobna, istniejąca lista dla Wojtka opisuje te decyzje. Scenariusz wyjazdu sprawdza rekord bez podanej daty; nowy test zamówień nie obejmuje pobrania, które instrukcja oznacza jako zależne od konfiguracji.
 
 Git: kandydat na `orchestrator/20261009-underwater_cms_e2e`, wyłącznie przydzielone pliki. Finalny review, pełną weryfikację, integrację, CI i wdrożenie wykonuje root. Zmienione pliki: `docs/implementation/client-cms-guide.md`, ten raport, `tests/e2e/client-operations.spec.ts`, `scripts/qa/client-cms-gate.mjs`, `scripts/qa/e2e-fixtures.ts`, `scripts/qa/e2e-server.mjs` oraz `playwright.config.ts`.
+
+## Poprawka po pierwszym rzeczywistym przebiegu integracji
+
+Root uruchomił gate r3 w `integrate_underwater`. Odczyt istniejących artefaktów potwierdził pięć błędów nowych testów desktopowych; pełna macierz nadal trwała podczas tej diagnozy. Nie raportujemy 50/50 ani zamknięcia całej bramki.
+
+- Test ról wysyłał do `/api/media` pusty JSON, który upload odrzucał kodem 400 przed sprawdzeniem uprawnień. Poprawka wysyła prawdziwy JPEG jako multipart z metadanymi i nadal wymaga 403 dla obsługi. Sprawdza również, że plik nie został zapisany jako rekord mediów.
+- Helper czynności operacyjnych czytał body odpowiedzi po automatycznym przeładowaniu dokumentu przez CMS. Chromium tracił body; dodatkowe odświeżenie testu mogło też przerwać nawigację. Poprawka uzbraja oczekiwanie na przeładowanie przed kliknięciem, wymaga rzeczywistego POST 200, potwierdza trwały status przez API i dokładny polski status widoczny w odświeżonym formularzu. Tak samo synchronizuje korektę magazynu przed kolejnym logowaniem.
+
+Dowody r3 pozostają w `/Volumes/Mad Dog/Archive/codex-work/client-orchestrator-20261009/evidence/integrate_underwater/final-gate-r3/cms/underwater-cms-gate-6Rdl7v/`: `e2e.log` oraz `test-results/client-operations-*/error-context.md` i `trace.zip`. Ślady pokazują POST czynności 200 i zmienione statusy; pięć nieukończonych scenariuszy nie stanowi dowodu ich pełnego wyniku. Odrębny, istniejący test `cms.spec.ts:329` zatrzymał się na dialogu Payload `document-stale-data`; diagnozę i artefakt przekazano prowadzącemu poza zakresem tej poprawki.
+
+W tym worktree zmieniono tylko nowy spec E2E i raport. Poprawka nie uruchamia ciężkich poleceń, nie zmienia aplikacji, nie dodaje skipów lub retry. Statyczny parser TypeScript i `git diff --check` służą do kontroli kandydata; **E2E poprawki pozostaje NOT RUN** do kolejnego przebiegu prowadzącego na świeżej syntetycznej bazie. Trwającej integracji i jej dowodów nie modyfikowano. Nie uruchomiono własnego procesu, serwera ani przeglądarki.

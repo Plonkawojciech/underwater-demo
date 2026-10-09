@@ -58,12 +58,23 @@ async function recordAction(page: Page, collection: string, id: number, status: 
   const actions = page.locator('.underwater-record-actions')
   await actions.getByLabel('Czynność obsługi', { exact: true }).selectOption(status)
   const saving = page.waitForResponse(response => new URL(response.url()).pathname === '/api/operations/records' && response.request().method() === 'POST')
+  // The CMS reloads only after parsing an { ok: true } response. Arm this before
+  // the click; response bodies belong to the old document and may disappear.
+  const refreshed = page.waitForEvent('framenavigated', frame => frame === page.mainFrame())
   await actions.getByRole('button', { name: 'Zapisz status', exact: true }).click()
   const response = await saving
   expect(response.status()).toBe(200)
-  expect(await response.json()).toMatchObject({ ok: true })
-  await expect.poll(async () => (await documents(page.request, collection, 'id', id)).docs[0]?.status).toBe(status === 'bank-paid' ? 'paid' : status)
-  await page.reload()
+  await refreshed
+  await page.waitForLoadState('domcontentloaded')
+  await expect(page).toHaveURL(url => url.pathname === `/admin/collections/${collection}/${id}`)
+  const persistedStatus = status === 'bank-paid' ? 'paid' : status
+  await expect.poll(async () => (await documents(page.request, collection, 'id', id)).docs[0]?.status).toBe(persistedStatus)
+  const statusLabels: Record<string, string> = {
+    contacted: 'Skontaktowano', rejected: 'Odrzucone', cancelled: 'Anulowane',
+    paid: 'Opłacone (test)', shipped: 'Nadane (test)',
+  }
+  expect(statusLabels[persistedStatus], `Allocate the actual CMS label for ${persistedStatus}`).toBeTruthy()
+  await expect(page.locator('#field-status .rs__single-value')).toHaveText(statusLabels[persistedStatus])
 }
 
 async function consent(page: Page) {
@@ -126,7 +137,16 @@ test('staff roles enforce editorial, operational and administrator boundaries', 
 
   const operations = await login(page, 'operations')
   for (const collection of ['orders', 'contacts', 'signups']) expect((await page.request.get(`/api/${collection}`, { headers: headers() })).status()).toBe(200)
-  for (const collection of ['products', 'pages', 'media']) expect((await page.request.post(`/api/${collection}`, { headers: headers(), data: {} })).status(), `operations create: ${collection}`).toBe(403)
+  for (const collection of ['products', 'pages']) expect((await page.request.post(`/api/${collection}`, { headers: headers(), data: {} })).status(), `operations create: ${collection}`).toBe(403)
+  const deniedFilename = `test-cms-denied-operations-${project()}.jpg`
+  const mediaBefore = await documents(page.request, 'media', 'filename', deniedFilename)
+  expect(mediaBefore.totalDocs).toBe(0)
+  const mediaUpload = await page.request.post('/api/media', { headers: headers(), multipart: {
+    file: { name: deniedFilename, mimeType: 'image/jpeg', buffer: await readFile(path.resolve('seed-media/hero.jpg')) },
+    _payload: JSON.stringify({ alt: `TEST CMS denied operations upload ${project()}` }),
+  } })
+  expect(mediaUpload.status(), 'operations create: valid JPEG media upload').toBe(403)
+  expect((await documents(page.request, 'media', 'filename', deniedFilename)).totalDocs).toBe(0)
   expect((await page.request.patch(`/api/products/${product.id}`, { headers: headers(), data: { name: 'TEST forbidden editorial edit' } })).status()).toBe(403)
   expect((await page.request.get('/api/audit-events', { headers: headers() })).status()).toBe(403)
   const operationsEscalation = await page.request.patch(`/api/users/${operations.id}`, { headers: headers(), data: { role: 'admin' } })
@@ -137,8 +157,13 @@ test('staff roles enforce editorial, operational and administrator boundaries', 
   const inventory = page.locator('.underwater-inventory-actions')
   await inventory.getByLabel('Nowy potwierdzony stan', { exact: true }).fill(String(product.stock))
   const correcting = page.waitForResponse(response => new URL(response.url()).pathname === '/api/operations/records' && response.request().method() === 'POST')
+  const corrected = page.waitForEvent('framenavigated', frame => frame === page.mainFrame())
   await inventory.getByRole('button', { name: 'Zapisz korektę z audytem', exact: true }).click()
   expect((await correcting).status()).toBe(200)
+  await corrected
+  await page.waitForLoadState('domcontentloaded')
+  await expect(page.locator('#field-name')).toHaveValue(String(product.name))
+  expect((await documents(page.request, 'products', 'id', product.id)).docs[0].stock).toBe(product.stock)
 
   await login(page, 'admin')
   const staff = await documents(page.request, 'users', 'id', operations.id)
